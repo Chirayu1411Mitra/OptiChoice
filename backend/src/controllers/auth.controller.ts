@@ -1,0 +1,256 @@
+import { randomBytes, randomUUID } from "node:crypto";
+import type { NextFunction, Request, Response } from "express";
+import { changeUserPassword, completePasswordReset, createEmailVerificationToken, createPasswordResetToken, createUserAndClaimLegacyData, deleteUserAndOwnedData, findUnverifiedUserByEmail, findUserByEmail, findUserById, findUserIdForPasswordReset, updateUserProfile, verifyUserEmail } from "../repositories/user.repository.js";
+import { hashPassword, issueSession, revokeSession, tokenDigest, verifyPassword } from "../services/auth.service.js";
+import { sendPasswordResetEmail, sendVerificationEmail } from "../services/email.service.js";
+import { changePasswordSchema, deleteAccountSchema, forgotPasswordSchema, loginSchema, registerSchema, resendVerificationSchema, resetPasswordSchema, updateProfileSchema, verifyEmailSchema } from "../validation/auth.schema.js";
+
+function invalidBody(response: Response, message: string): void {
+  response.status(400).json({ error: { code: "INVALID_REQUEST", message } });
+}
+
+export async function registerController(request: Request, response: Response, next: NextFunction): Promise<void> {
+  const parsed = registerSchema.safeParse(request.body);
+  if (!parsed.success) {
+    invalidBody(response, parsed.error.issues[0]?.message ?? "Check your details and try again.");
+    return;
+  }
+
+  try {
+    if (findUserByEmail(parsed.data.email)) {
+      response.status(409).json({ error: { code: "EMAIL_IN_USE", message: "An account with this email already exists." } });
+      return;
+    }
+    const createdAt = new Date().toISOString();
+    const user = createUserAndClaimLegacyData({
+      id: randomUUID(),
+      name: parsed.data.name,
+      email: parsed.data.email,
+      passwordHash: await hashPassword(parsed.data.password),
+      emailVerifiedAt: null,
+      dateOfBirth: null,
+      gender: null,
+      phoneNumber: null,
+      location: null,
+      createdAt,
+    });
+    await issueVerification(user);
+    response.status(201).json({ verificationRequired: true });
+  } catch (error) {
+    if (findUserByEmail(parsed.data.email)) {
+      response.status(409).json({ error: { code: "EMAIL_IN_USE", message: "An account with this email already exists." } });
+      return;
+    }
+    next(error);
+  }
+}
+
+export async function loginController(request: Request, response: Response, next: NextFunction): Promise<void> {
+  const parsed = loginSchema.safeParse(request.body);
+  if (!parsed.success) {
+    invalidBody(response, "Enter a valid email and password.");
+    return;
+  }
+
+  try {
+    const user = findUserByEmail(parsed.data.email);
+    if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
+      response.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Email or password is incorrect." } });
+      return;
+    }
+    if (!user.emailVerifiedAt) {
+      response.status(403).json({ error: { code: "EMAIL_NOT_VERIFIED", message: "Verify your email before logging in. Check your inbox or request a new verification link." } });
+      return;
+    }
+    const session = issueSession(user.id);
+    response.status(200).json({
+      user: { id: user.id, name: user.name, email: user.email, createdAt: user.createdAt, dateOfBirth: user.dateOfBirth, gender: user.gender, phoneNumber: user.phoneNumber, location: user.location },
+      ...session,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function issueVerification(user: { id: string; email: string }): Promise<void> {
+  const token = randomBytes(32).toString("base64url");
+  const now = new Date();
+  createEmailVerificationToken(user.id, tokenDigest(token), now.toISOString(), new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString());
+  try {
+    await sendVerificationEmail(user.email, token);
+  } catch (error) {
+    console.error("Email verification message could not be sent.", error instanceof Error ? error.message : "Unknown email delivery error.");
+  }
+}
+
+export async function resendVerificationController(request: Request, response: Response, next: NextFunction): Promise<void> {
+  const parsed = resendVerificationSchema.safeParse(request.body);
+  if (!parsed.success) {
+    invalidBody(response, parsed.error.issues[0]?.message ?? "Enter a valid email address.");
+    return;
+  }
+  try {
+    const user = findUnverifiedUserByEmail(parsed.data.email);
+    if (user) await issueVerification(user);
+    response.status(202).json({ message: "If that address belongs to an unverified account, a verification link has been sent." });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export function verifyEmailController(request: Request, response: Response): void {
+  const parsed = verifyEmailSchema.safeParse(request.body);
+  if (!parsed.success) {
+    invalidBody(response, "This verification link is invalid or expired. Request a new one.");
+    return;
+  }
+  const verified = verifyUserEmail(tokenDigest(parsed.data.token), new Date().toISOString());
+  if (!verified) {
+    response.status(400).json({ error: { code: "INVALID_VERIFICATION_TOKEN", message: "This verification link is invalid or expired. Request a new one." } });
+    return;
+  }
+  response.status(200).json({ verified: true });
+}
+
+export function currentUserController(request: Request, response: Response): void {
+  if (!request.authUser) {
+    response.status(401).json({ error: { code: "UNAUTHORIZED", message: "Please sign in to continue." } });
+    return;
+  }
+  response.status(200).json({ user: request.authUser });
+}
+
+export function logoutController(request: Request, response: Response): void {
+  const token = (request.get("authorization") ?? "").split(" ")[1];
+  if (token) revokeSession(token);
+  response.status(204).end();
+}
+
+export function updateProfileController(request: Request, response: Response, next: NextFunction): void {
+  const parsed = updateProfileSchema.safeParse(request.body);
+  if (!parsed.success) {
+    invalidBody(response, parsed.error.issues[0]?.message ?? "Check your name and try again.");
+    return;
+  }
+  if (!request.authUser) {
+    response.status(401).json({ error: { code: "UNAUTHORIZED", message: "Please sign in to continue." } });
+    return;
+  }
+  try {
+    const user = updateUserProfile(request.authUser.id, parsed.data);
+    if (!user) {
+      response.status(404).json({ error: { code: "USER_NOT_FOUND", message: "This account could not be found." } });
+      return;
+    }
+    response.status(200).json({ user });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function changePasswordController(request: Request, response: Response, next: NextFunction): Promise<void> {
+  const parsed = changePasswordSchema.safeParse(request.body);
+  if (!parsed.success) {
+    invalidBody(response, parsed.error.issues[0]?.message ?? "Check your password and try again.");
+    return;
+  }
+  const userId = request.authUser?.id;
+  const token = (request.get("authorization") ?? "").split(" ")[1];
+  if (!userId || !token) {
+    response.status(401).json({ error: { code: "UNAUTHORIZED", message: "Please sign in to continue." } });
+    return;
+  }
+  if (parsed.data.currentPassword === parsed.data.newPassword) {
+    response.status(400).json({ error: { code: "PASSWORD_UNCHANGED", message: "Choose a new password that differs from your current one." } });
+    return;
+  }
+
+  try {
+    const user = findUserById(userId);
+    if (!user || !(await verifyPassword(parsed.data.currentPassword, user.passwordHash))) {
+      response.status(400).json({ error: { code: "CURRENT_PASSWORD_INCORRECT", message: "Your current password is incorrect." } });
+      return;
+    }
+    const passwordHash = await hashPassword(parsed.data.newPassword);
+    changeUserPassword(userId, passwordHash, tokenDigest(token));
+    response.status(200).json({ changed: true });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteAccountController(request: Request, response: Response, next: NextFunction): Promise<void> {
+  const parsed = deleteAccountSchema.safeParse(request.body);
+  if (!parsed.success) {
+    invalidBody(response, parsed.error.issues[0]?.message ?? "Enter your password to confirm account deletion.");
+    return;
+  }
+  const userId = request.authUser?.id;
+  if (!userId) {
+    response.status(401).json({ error: { code: "UNAUTHORIZED", message: "Please sign in to continue." } });
+    return;
+  }
+  try {
+    const user = findUserById(userId);
+    if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
+      response.status(400).json({ error: { code: "PASSWORD_INCORRECT", message: "Your password is incorrect. Your account has not been deleted." } });
+      return;
+    }
+    if (!deleteUserAndOwnedData(userId)) {
+      response.status(404).json({ error: { code: "USER_NOT_FOUND", message: "This account could not be found." } });
+      return;
+    }
+    response.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function forgotPasswordController(request: Request, response: Response, next: NextFunction): Promise<void> {
+  const parsed = forgotPasswordSchema.safeParse(request.body);
+  if (!parsed.success) {
+    invalidBody(response, parsed.error.issues[0]?.message ?? "Enter a valid email address.");
+    return;
+  }
+  try {
+    const user = findUserByEmail(parsed.data.email);
+    if (user) {
+      const token = randomBytes(32).toString("base64url");
+      const now = new Date();
+      createPasswordResetToken(user.id, tokenDigest(token), now.toISOString(), new Date(now.getTime() + 30 * 60 * 1000).toISOString());
+      try {
+        await sendPasswordResetEmail(user.email, token);
+      } catch (error) {
+        console.error("Password reset email could not be sent.", error instanceof Error ? error.message : "Unknown email delivery error.");
+      }
+    }
+    response.status(202).json({ message: "If an account exists for this email, a reset link has been sent." });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function resetPasswordController(request: Request, response: Response, next: NextFunction): Promise<void> {
+  const parsed = resetPasswordSchema.safeParse(request.body);
+  if (!parsed.success) {
+    invalidBody(response, parsed.error.issues[0]?.message ?? "Check your new password and try again.");
+    return;
+  }
+  try {
+    const tokenHash = tokenDigest(parsed.data.token);
+    const now = new Date().toISOString();
+    const userId = findUserIdForPasswordReset(tokenHash, now);
+    if (!userId) {
+      response.status(400).json({ error: { code: "INVALID_RESET_TOKEN", message: "This reset link is invalid or expired. Request a new one." } });
+      return;
+    }
+    const passwordHash = await hashPassword(parsed.data.newPassword);
+    if (!completePasswordReset(userId, tokenHash, passwordHash, new Date().toISOString())) {
+      response.status(400).json({ error: { code: "INVALID_RESET_TOKEN", message: "This reset link is invalid or expired. Request a new one." } });
+      return;
+    }
+    response.status(200).json({ reset: true });
+  } catch (error) {
+    next(error);
+  }
+}

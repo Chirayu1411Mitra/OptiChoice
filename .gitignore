@@ -6,6 +6,11 @@ node_modules/
 dist/
 build/
 coverage/
+.output/
+.wrangler/
+backend/data/*.sqlite
+backend/data/*.sqlite-shm
+backend/data/*.sqlite-wal
 
 *.log
 

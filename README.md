@@ -1,245 +1,60 @@
 # OptiChoice
 
-## Intelligent Decision Evaluation System
+OptiChoice is an AI-assisted decision support app for comparing options against personal priorities. The calculation is deterministic; AI will explain the result but will not decide or change the ranking.
 
-An AI-assisted multi-criteria decision support platform that helps users compare multiple alternatives based on their own priorities.
+## Scoring rule
 
-The system uses a **deterministic decision engine** for scoring and ranking, while **Generative AI** is used to explain the results, trade-offs, and important factors.
+For new decisions, enter a real numeric value for every option and criterion, with an optional unit such as ₹, hours, or kg. Mark whether higher or lower values are better. OptiChoice converts values within each criterion to a comparable 0–100 scale using min–max normalization, then applies the criterion weights:
 
----
-
-# 👥 Team & Responsibilities
-
-## Member 1 — Shubhank
-### Frontend & UI/UX
-
-**Main Folder:** `frontend/`
-
-### Responsibilities
-- React.js frontend
-- TypeScript
-- Tailwind CSS
-- Login/Register UI
-- Decision Workspace
-- Decision creation forms
-- Alternative and criteria forms
-- Weight and rating/value inputs
-- Results and ranking display
-- Dashboard
-- Charts and visualizations using Recharts
-- Frontend API integration
-- Responsive design
-- What-If interface
-
-### Important
-The frontend **does NOT calculate the final ranking**.
-
-It collects user input, sends it to the backend, and displays the results returned by the backend/decision engine.
-
----
-
-## Member 2 — Rhythm
-### Backend & Database
-
-**Main Folder:** `backend/`
-
-### Responsibilities
-- Node.js
-- Express.js
-- REST APIs
-- PostgreSQL / Supabase
-- Database schema
-- Authentication
-- User management
-- Decision CRUD operations
-- Alternative and criteria CRUD operations
-- Input validation
-- Error handling
-- API security
-- Communication between frontend, database, decision engine and AI
-
-### Important
-The backend acts as the main coordinator between the different parts of the system.
-
----
-
-## Member 3 — Chirayu
-### Decision Engine & What-If
-
-**Main Folder:** `decision-engine/`
-
-### Responsibilities
-- Multi-Criteria Decision Making (MCDM)
-- Data normalization
-- Criterion weighting
-- Weighted score calculation
-- Ranking alternatives
-- Benefit vs Cost criteria
-- Score breakdown
-- What-If analysis
-- Sensitivity analysis
-- Scenario comparison
-- Recalculation when weights/values change
-- Unit testing of calculations
-
-### Core Formula
-
-`Score(Aj) = Σ (wi × vij)`
-
-Where:
-- `wi` = weight of criterion
-- `vij` = normalized value of alternative
-- `Aj` = alternative
-
-### Important
-The decision engine must be **deterministic**.
-
-The same input should always produce the same ranking.
-
-AI must NOT replace the mathematical scoring system.
-
----
-
-## Member 4 — Yash
-### AI Integration & Explainability
-
-**Main Folder:** `ai/`
-
-### Responsibilities
-- Generative AI API integration
-- Prompt design
-- Sending structured decision results to AI
-- AI explanation of rankings
-- Trade-off explanations
-- Strengths and weaknesses of alternatives
-- Important criteria identification
-- Assumption explanations
-- What-If result explanations
-- AI response validation
-- Report/PDF generation
-- AI-related testing
-
-### Important
-AI is used to **explain and interpret** the calculated result.
-
-AI must NOT independently decide or silently change the ranking.
-
----
-
-# 📁 Project Structure
+The current score is a weighted sum:
 
 ```text
-OptiChoice/
-│
-├── frontend/                    # Shubhank
-│   └── src/
-│       ├── components/
-│       ├── pages/
-│       ├── services/
-│       ├── types/
-│       └── hooks/
-│
-├── backend/                     # Rhythm
-│   └── src/
-│       ├── routes/
-│       ├── controllers/
-│       ├── services/
-│       ├── middleware/
-│       └── db/
-│
-├── decision-engine/             # Chirayu
-│   ├── src/
-│   │   ├── normalization/
-│   │   ├── scoring/
-│   │   ├── ranking/
-│   │   └── what-if/
-│   └── tests/
-│
-├── ai/                          # Yash
-│   ├── src/
-│   │   ├── prompts/
-│   │   ├── services/
-│   │   ├── validation/
-│   │   └── reports/
-│   └── tests/
-│
-├── docs/
-│   ├── architecture/
-│   ├── api/
-│   ├── database/
-│   └── project-documentation/
-│
-├── .env.example
-├── .gitignore
-└── README.md
+normalized value = (value − minimum) / (maximum − minimum) × 100  [higher is better]
+normalized value = (maximum − value) / (maximum − minimum) × 100  [lower is better]
+score = Σ (criterion weight / 100 × normalized value)
+```
 
-                         User
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │  Frontend   │
-                    │  Shubhank   │
-                    └──────┬──────┘
-                           │
-                        REST API
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │   Backend   │
-                    │    Rhythm   │
-                    └──────┬──────┘
-                           │
-                           ▼
-                  ┌─────────────────┐
-                  │ Decision Engine │
-                  │     Chirayu     │
-                  └────────┬────────┘
-                           │
-                     Score + Ranking
-                           │
-                           ▼
-                     ┌───────────┐
-                     │    AI     │
-                     │   Yash    │
-                     └─────┬─────┘
-                           │
-                      Explanation
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │  Frontend   │
-                    │  Shubhank   │
-                    └─────────────┘
+If all options have the same value for a criterion, they all receive 100 for that criterion because it does not distinguish between them. Scores compare only the options in this decision; they do not say whether an option is objectively good. Older drafts and evaluations retain their original 0–100 rating method.
 
+## Project structure
 
-# Example Request
-{
-  "criteria": [
-    {
-      "name": "Performance",
-      "weight": 0.35
-    },
-    {
-      "name": "Battery",
-      "weight": 0.25
-    }
-  ],
-  "alternatives": [
-    {
-      "name": "MacBook",
-      "values": {
-        "Performance": 90,
-        "Battery": 85
-      }
-    }
-  ]
-}
+```text
+frontend/          React and TypeScript web application
+backend/           Express API and request middleware
+decision-engine/   Pure deterministic scoring and ranking
+ai/                Planned explanation and report layer
+docs/              Architecture, API, database, and project documentation
+```
 
-{
-  "ranking": [
-    {
-      "name": "MacBook",
-      "score": 0.87
-    }
-  ]
-}
+The backend provides registration, email verification, sign-in, profile, password recovery, sessions, evaluation, history, and draft routes. Evaluations and unfinished drafts are saved in a local SQLite database and belong to the signed-in account. Existing local records are assigned to the first account that registers. In development, the frontend proxies `/api` to the backend. What-If changes recalculate immediately in the browser using the same engine and are not saved as new evaluations. AI integration is not connected yet.
+
+## Run locally
+
+On the first run, install the API dependencies and create its local environment file:
+
+```powershell
+cd backend
+npm install
+Copy-Item .env.example .env
+```
+
+Password recovery and email verification work locally without email credentials: copy the relevant link from the backend terminal. To send real email, set `APP_BASE_URL` to the frontend URL, then configure `RESEND_API_KEY` and `RESEND_FROM` in `backend/.env` with your Resend account details.
+
+Laptop product search uses SerpApi's Google Shopping results. Create a SerpApi API key, put it in `SERPAPI_API_KEY` in `backend/.env`, and restart the backend. `PRODUCT_SEARCH_COUNTRY` defaults to `in` and `PRODUCT_SEARCH_LANGUAGE` to `en`. The key stays on the backend. Search results are suggestions: check the retailer page for current prices and specifications before relying on them. A selected listing's price can be copied into a matching Price or Cost value in the decision workspace.
+
+Start the API in one terminal:
+
+```powershell
+cd backend
+npm run dev
+```
+
+In a second terminal, install and start the frontend:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open the local address shown by Vite. The development server proxies `/api` requests to the backend, which listens at `http://localhost:3001` by default. Create an account from the registration page, then sign in with that email and password. See [docs/architecture/overview.md](docs/architecture/overview.md) for the system boundaries and current scoring contract.
