@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { runEvaluation } from "../services/evaluation.service.js";
-import { createDraft, deleteDecision, deleteDraft, getDraft, listDecisions, listDrafts, saveDecision, updateDraft } from "../repositories/decision.repository.js";
+import { createDraft, deleteDecision, deleteDraft, getDecision, getDraft, listDecisions, listDrafts, saveDecision, updateDraft } from "../repositories/decision.repository.js";
 import { draftSchema } from "../validation/draft.schema.js";
 import { evaluationRequestSchema } from "../validation/evaluation.schema.js";
 import { z } from "zod";
+import { generateDecisionExplanation } from "../services/decision-explanation.service.js";
+import { GeminiAnalysisError } from "../../../ai/src/services/gemini.service.js";
 
 function currentUserId(request: Request, response: Response): string | null {
   if (!request.authUser) {
@@ -69,6 +71,34 @@ export function listDecisionsController(_request: Request, response: Response): 
   const userId = currentUserId(_request, response);
   if (!userId) return;
   response.status(200).json({ decisions: listDecisions(userId) });
+}
+
+export async function decisionExplanationController(request: Request, response: Response, next: NextFunction): Promise<void> {
+  const userId = currentUserId(request, response);
+  if (!userId) return;
+
+  const id = z.uuid().safeParse(request.params["id"]);
+  if (!id.success) {
+    response.status(400).json({ error: { code: "INVALID_DECISION_ID", message: "That decision ID is not valid." } });
+    return;
+  }
+
+  const decision = getDecision(id.data, userId);
+  if (!decision) {
+    response.status(404).json({ error: { code: "DECISION_NOT_FOUND", message: "That evaluation could not be found." } });
+    return;
+  }
+
+  try {
+    const result = await generateDecisionExplanation(decision);
+    response.status(200).json({ ...result, generatedAt: new Date().toISOString() });
+  } catch (error) {
+    if (error instanceof GeminiAnalysisError) {
+      response.status(error.statusCode).json({ error: { code: error.code, message: error.message } });
+      return;
+    }
+    next(error);
+  }
 }
 
 export function deleteDecisionController(request: Request, response: Response): void {

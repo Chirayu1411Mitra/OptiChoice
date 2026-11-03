@@ -20,7 +20,7 @@ export interface SavedDecision {
   scoringMode: EvaluationRequestBody["scoringMode"];
   ratings: EvaluationRequestBody["ratings"];
   ranking: { alternativeId: string; alternativeName: string; rank: number; score: number }[];
-  breakdown: { alternativeId: string; contributions: { criterionId: string; criterionName: string; value: number }[] }[];
+  breakdown: { alternativeId: string; contributions: { criterionId: string; criterionName: string; value: number; inputValue?: number; normalizedValue?: number; unit?: string }[] }[];
 }
 
 export function saveDecision(decision: SavedDecision & { userId: string }, draftId?: string): void {
@@ -66,23 +66,33 @@ export function listDecisions(userId: string): SavedDecision[] {
     ORDER BY created_at DESC, rowid DESC
   `).all(userId);
 
-  return rows.map((row) => {
-    const saved = row as Record<string, string>;
-    return {
-      id: saved["id"]!,
-      title: saved["title"]!,
-      description: saved["description"]!,
-      status: "completed",
-      scoringMode: (saved["scoring_mode"] ?? "rating") as "rating" | "relative",
-      createdAt: saved["created_at"]!,
-      updatedAt: saved["created_at"]!,
-      alternatives: JSON.parse(saved["alternatives_json"]!),
-      criteria: JSON.parse(saved["criteria_json"]!),
-      ratings: JSON.parse(saved["ratings_json"]!),
-      ranking: JSON.parse(saved["ranking_json"]!),
-      breakdown: JSON.parse(saved["breakdown_json"]!),
-    };
-  });
+  return rows.map((row) => mapSavedDecision(row as Record<string, string>));
+}
+
+function mapSavedDecision(saved: Record<string, string>): SavedDecision {
+  return {
+    id: saved["id"]!,
+    title: saved["title"]!,
+    description: saved["description"]!,
+    status: "completed",
+    scoringMode: (saved["scoring_mode"] ?? "rating") as "rating" | "relative",
+    createdAt: saved["created_at"]!,
+    updatedAt: saved["created_at"]!,
+    alternatives: JSON.parse(saved["alternatives_json"]!),
+    criteria: JSON.parse(saved["criteria_json"]!),
+    ratings: JSON.parse(saved["ratings_json"]!),
+    ranking: JSON.parse(saved["ranking_json"]!),
+    breakdown: JSON.parse(saved["breakdown_json"]!),
+  };
+}
+
+export function getDecision(id: string, userId: string): SavedDecision | null {
+  const row = database.prepare(`
+    SELECT id, title, description, alternatives_json, criteria_json, ratings_json,
+      ranking_json, breakdown_json, scoring_mode, created_at
+    FROM decisions WHERE id = ? AND user_id = ?
+  `).get(id, userId);
+  return row ? mapSavedDecision(row as Record<string, string>) : null;
 }
 
 export function deleteDecision(id: string, userId: string): boolean {

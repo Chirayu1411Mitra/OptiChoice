@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createDraftController,
+  decisionExplanationController,
   deleteDecisionController,
   deleteDraftController,
   evaluateDecisionController,
@@ -9,10 +10,12 @@ import {
   listDraftsController,
   updateDraftController,
 } from "../controllers/decision.controller.js";
+import { aiExplanationRateLimit } from "../middleware/aiRateLimit.js";
 
 export const decisionRoutes = Router();
 
 decisionRoutes.get("/decisions", listDecisionsController);
+decisionRoutes.post("/decisions/:id/explanation", aiExplanationRateLimit, decisionExplanationController);
 decisionRoutes.delete("/decisions/:id", deleteDecisionController);
 decisionRoutes.get("/decisions/drafts", listDraftsController);
 decisionRoutes.post("/decisions/drafts", createDraftController);
