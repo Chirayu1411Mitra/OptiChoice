@@ -254,15 +254,26 @@ export async function findOrCreateGoogleUser(user: {
       return linked;
     }
 
-    await client.query(
+    const inserted = await client.query(
       `INSERT INTO users (id, name, email, password_hash, google_sub, email_verified_at, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, name, email, created_at, date_of_birth, gender, phone_number, location`,
       [user.id, user.name, user.email, user.passwordHash, user.googleSub, user.createdAt, user.createdAt]
     );
     await client.query("UPDATE decisions SET user_id = $1 WHERE user_id IS NULL", [user.id]);
     await client.query("UPDATE decision_drafts SET user_id = $1 WHERE user_id IS NULL", [user.id]);
-    const created = await findUserById(user.id);
-    if (!created) throw new Error("Unable to load the new Google account.");
+    const row = inserted.rows[0];
+    if (!row) throw new Error("The Google account could not be created.");
+    const created: AuthUser = {
+      id: row.id,
+      name: row.name,
+      email: row.email,
+      createdAt: row.created_at,
+      dateOfBirth: row.date_of_birth,
+      gender: row.gender,
+      phoneNumber: row.phone_number,
+      location: row.location,
+    };
     await client.query("COMMIT");
     return created;
   } catch (error) {
