@@ -170,6 +170,50 @@ export function createUserAndClaimLegacyData(user: UserWithPassword): AuthUser {
   }
 }
 
+export function findOrCreateGoogleUser(user: {
+  id: string;
+  googleSub: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  createdAt: string;
+}): AuthUser {
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const byGoogle = database.prepare("SELECT id FROM users WHERE google_sub = ?").get(user.googleSub) as { id: string } | undefined;
+    if (byGoogle) {
+      const existing = findUserById(byGoogle.id);
+      if (!existing) throw new Error("Google account is linked to a missing user.");
+      database.exec("COMMIT");
+      return existing;
+    }
+
+    const byEmail = findUserByEmail(user.email);
+    if (byEmail) {
+      database.prepare("UPDATE users SET google_sub = ?, email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?")
+        .run(user.googleSub, user.createdAt, byEmail.id);
+      const linked = findUserById(byEmail.id);
+      if (!linked) throw new Error("Unable to load the linked Google account.");
+      database.exec("COMMIT");
+      return linked;
+    }
+
+    database.prepare(`
+      INSERT INTO users (id, name, email, password_hash, google_sub, email_verified_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(user.id, user.name, user.email, user.passwordHash, user.googleSub, user.createdAt, user.createdAt);
+    database.prepare("UPDATE decisions SET user_id = ? WHERE user_id IS NULL").run(user.id);
+    database.prepare("UPDATE decision_drafts SET user_id = ? WHERE user_id IS NULL").run(user.id);
+    const created = findUserById(user.id);
+    if (!created) throw new Error("Unable to load the new Google account.");
+    database.exec("COMMIT");
+    return created;
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export function createSession(tokenHash: string, userId: string, createdAt: string, expiresAt: string): void {
   database.prepare("DELETE FROM user_sessions WHERE expires_at <= ?").run(createdAt);
   database.prepare(`

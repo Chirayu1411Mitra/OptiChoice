@@ -16,6 +16,7 @@ database.exec(`
     name TEXT NOT NULL,
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
+    google_sub TEXT UNIQUE,
     email_verified_at TEXT,
     date_of_birth TEXT,
     gender TEXT,
@@ -94,6 +95,9 @@ if (!userColumns.some((column) => column.name === "email_verified_at")) {
   database.exec("UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL");
 }
 const refreshedUserColumns = database.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+if (!refreshedUserColumns.some((entry) => entry.name === "google_sub")) {
+  database.exec("ALTER TABLE users ADD COLUMN google_sub TEXT");
+}
 for (const column of ["date_of_birth", "gender", "phone_number", "location"] as const) {
   if (!refreshedUserColumns.some((entry) => entry.name === column)) {
     database.exec(`ALTER TABLE users ADD COLUMN ${column} TEXT`);
@@ -102,4 +106,5 @@ for (const column of ["date_of_birth", "gender", "phone_number", "location"] as 
 database.exec(`
   CREATE INDEX IF NOT EXISTS decisions_user_id_idx ON decisions(user_id);
   CREATE INDEX IF NOT EXISTS decision_drafts_user_id_idx ON decision_drafts(user_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users(google_sub) WHERE google_sub IS NOT NULL;
 `);

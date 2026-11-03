@@ -22,11 +22,11 @@ If all options have the same value for a criterion, they all receive 100 for tha
 frontend/          React and TypeScript web application
 backend/           Express API and request middleware
 decision-engine/   Pure deterministic scoring and ranking
-ai/                Planned explanation and report layer
+ai/                Gemini explanation service and prompt/schema
 docs/              Architecture, API, database, and project documentation
 ```
 
-The backend provides registration, email verification, sign-in, profile, password recovery, sessions, evaluation, history, and draft routes. Evaluations and unfinished drafts are saved in a local SQLite database and belong to the signed-in account. Existing local records are assigned to the first account that registers. In development, the frontend proxies `/api` to the backend. What-If changes recalculate immediately in the browser using the same engine and are not saved as new evaluations. AI integration is not connected yet.
+The backend provides registration, email verification, Google sign-in, profile, password recovery, sessions, evaluation, history, and draft routes. Verification and password recovery use Gmail SMTP when configured; otherwise local development prints the link in the API terminal. Evaluations and unfinished drafts are saved in SQLite and belong to the signed-in account. In development, the frontend proxies `/api` to the backend. What-If changes recalculate immediately in the browser and are not saved as new evaluations. Gemini explains completed decisions but does not change their deterministic ranking.
 
 ## Run locally
 
@@ -38,9 +38,11 @@ npm install
 Copy-Item .env.example .env
 ```
 
-Password recovery and email verification work locally without email credentials: copy the relevant link from the backend terminal. To send real email, set `APP_BASE_URL` to the frontend URL, then configure `RESEND_API_KEY` and `RESEND_FROM` in `backend/.env` with your Resend account details.
+For Gmail email delivery, set `SMTP_USER` and `SMTP_APP_PASSWORD` in `backend/.env`; `SMTP_FROM` is optional. For Google sign-in, set the web OAuth client ID as `GOOGLE_CLIENT_ID` in `backend/.env` and `VITE_GOOGLE_CLIENT_ID` in `frontend/.env`. The Google client secret is not used by this ID-token sign-in flow and must never be placed in frontend configuration. Copy `frontend/.env.example` to `frontend/.env` before setting the public client ID.
 
-Laptop product search uses SerpApi's Google Shopping results. Create a SerpApi API key, put it in `SERPAPI_API_KEY` in `backend/.env`, and restart the backend. `PRODUCT_SEARCH_COUNTRY` defaults to `in` and `PRODUCT_SEARCH_LANGUAGE` to `en`. The key stays on the backend. Search results are suggestions: check the retailer page for current prices and specifications before relying on them. A selected listing's price can be copied into a matching Price or Cost value in the decision workspace.
+Gemini explanations require `GEMINI_API_KEY` in `backend/.env`. Keep all server credentials in the backend environment and restart the API after changing them.
+
+Optional shopping search is shown for purchase-oriented decisions and uses SerpApi's Google Shopping results. Create a SerpApi API key, put it in `SERPAPI_API_KEY` in `backend/.env`, and restart the backend. `PRODUCT_SEARCH_COUNTRY` defaults to `in` and `PRODUCT_SEARCH_LANGUAGE` to `en`. The key stays on the backend. Search results are suggestions: check the retailer page for current prices and specifications before relying on them. A selected listing's price can be copied into a matching Price or Cost value in the decision workspace.
 
 Start the API in one terminal:
 

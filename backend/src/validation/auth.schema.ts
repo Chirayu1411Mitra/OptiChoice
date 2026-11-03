@@ -11,6 +11,8 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Enter your password.").max(128, "Password must be 128 characters or fewer."),
 });
 
+export const googleLoginSchema = z.object({ credential: z.string().min(32).max(8192) });
+
 export const updateProfileSchema = z.object({
   name: z.string().trim().min(1, "Enter your name.").max(80),
   dateOfBirth: z.string().nullable().refine((value) => {

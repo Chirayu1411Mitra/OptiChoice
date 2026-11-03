@@ -1,9 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
-import { changeUserPassword, completePasswordReset, createEmailVerificationToken, createPasswordResetToken, createUserAndClaimLegacyData, deleteUserAndOwnedData, findUnverifiedUserByEmail, findUserByEmail, findUserById, findUserIdForPasswordReset, updateUserProfile, verifyUserEmail } from "../repositories/user.repository.js";
+import { OAuth2Client } from "google-auth-library";
+import { env } from "../config/env.js";
+import { changeUserPassword, completePasswordReset, createEmailVerificationToken, createPasswordResetToken, createUserAndClaimLegacyData, deleteUserAndOwnedData, findOrCreateGoogleUser, findUnverifiedUserByEmail, findUserByEmail, findUserById, findUserIdForPasswordReset, updateUserProfile, verifyUserEmail } from "../repositories/user.repository.js";
 import { hashPassword, issueSession, revokeSession, tokenDigest, verifyPassword } from "../services/auth.service.js";
 import { sendPasswordResetEmail, sendVerificationEmail } from "../services/email.service.js";
-import { changePasswordSchema, deleteAccountSchema, forgotPasswordSchema, loginSchema, registerSchema, resendVerificationSchema, resetPasswordSchema, updateProfileSchema, verifyEmailSchema } from "../validation/auth.schema.js";
+import { changePasswordSchema, deleteAccountSchema, forgotPasswordSchema, googleLoginSchema, loginSchema, registerSchema, resendVerificationSchema, resetPasswordSchema, updateProfileSchema, verifyEmailSchema } from "../validation/auth.schema.js";
+
+const googleClient = new OAuth2Client();
 
 function invalidBody(response: Response, message: string): void {
   response.status(400).json({ error: { code: "INVALID_REQUEST", message } });
@@ -16,13 +20,15 @@ export async function registerController(request: Request, response: Response, n
     return;
   }
 
+  if (findUserByEmail(parsed.data.email)) {
+    response.status(409).json({ error: { code: "EMAIL_IN_USE", message: "An account with this email already exists." } });
+    return;
+  }
+
+  const createdAt = new Date().toISOString();
+  let user: ReturnType<typeof createUserAndClaimLegacyData>;
   try {
-    if (findUserByEmail(parsed.data.email)) {
-      response.status(409).json({ error: { code: "EMAIL_IN_USE", message: "An account with this email already exists." } });
-      return;
-    }
-    const createdAt = new Date().toISOString();
-    const user = createUserAndClaimLegacyData({
+    user = createUserAndClaimLegacyData({
       id: randomUUID(),
       name: parsed.data.name,
       email: parsed.data.email,
@@ -34,14 +40,21 @@ export async function registerController(request: Request, response: Response, n
       location: null,
       createdAt,
     });
-    await issueVerification(user);
-    response.status(201).json({ verificationRequired: true });
   } catch (error) {
     if (findUserByEmail(parsed.data.email)) {
       response.status(409).json({ error: { code: "EMAIL_IN_USE", message: "An account with this email already exists." } });
       return;
     }
     next(error);
+    return;
+  }
+
+  try {
+    const emailSent = await issueVerification(user);
+    response.status(201).json({ verificationRequired: true, emailSent });
+  } catch (error) {
+    console.error("Verification email delivery failed.", error instanceof Error ? error.message : "Unknown email delivery error.");
+    response.status(503).json({ error: { code: "EMAIL_DELIVERY_FAILED", message: "Your account was created, but we couldn't send the verification email. Check the Gmail SMTP settings, then request another verification link." } });
   }
 }
 
@@ -72,15 +85,52 @@ export async function loginController(request: Request, response: Response, next
   }
 }
 
-async function issueVerification(user: { id: string; email: string }): Promise<void> {
+export async function googleLoginController(request: Request, response: Response, next: NextFunction): Promise<void> {
+  const parsed = googleLoginSchema.safeParse(request.body);
+  if (!parsed.success) {
+    invalidBody(response, "Sign in with Google and try again.");
+    return;
+  }
+  if (!env.googleClientId) {
+    response.status(503).json({ error: { code: "GOOGLE_AUTH_NOT_CONFIGURED", message: "Google sign-in isn't configured yet. Set GOOGLE_CLIENT_ID on the backend and VITE_GOOGLE_CLIENT_ID on the frontend." } });
+    return;
+  }
+
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({ idToken: parsed.data.credential, audience: env.googleClientId });
+    payload = ticket.getPayload();
+  } catch {
+    response.status(401).json({ error: { code: "INVALID_GOOGLE_CREDENTIAL", message: "Google sign-in could not be verified. Please try again." } });
+    return;
+  }
+  if (!payload?.sub || !payload.email || payload.email_verified !== true) {
+    response.status(401).json({ error: { code: "INVALID_GOOGLE_CREDENTIAL", message: "Google couldn't verify this account. Try again or use email and password." } });
+    return;
+  }
+
+  try {
+    const now = new Date().toISOString();
+    const user = findOrCreateGoogleUser({
+      id: randomUUID(),
+      googleSub: payload.sub,
+      name: payload.name?.trim() || payload.email.split("@")[0] || "Google user",
+      email: payload.email.trim().toLowerCase(),
+      passwordHash: `google$${randomBytes(48).toString("base64url")}`,
+      createdAt: now,
+    });
+    const session = issueSession(user.id);
+    response.status(200).json({ user, ...session });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function issueVerification(user: { id: string; email: string }): Promise<boolean> {
   const token = randomBytes(32).toString("base64url");
   const now = new Date();
   createEmailVerificationToken(user.id, tokenDigest(token), now.toISOString(), new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString());
-  try {
-    await sendVerificationEmail(user.email, token);
-  } catch (error) {
-    console.error("Email verification message could not be sent.", error instanceof Error ? error.message : "Unknown email delivery error.");
-  }
+  return sendVerificationEmail(user.email, token);
 }
 
 export async function resendVerificationController(request: Request, response: Response, next: NextFunction): Promise<void> {
@@ -91,10 +141,14 @@ export async function resendVerificationController(request: Request, response: R
   }
   try {
     const user = findUnverifiedUserByEmail(parsed.data.email);
-    if (user) await issueVerification(user);
-    response.status(202).json({ message: "If that address belongs to an unverified account, a verification link has been sent." });
+    const emailSent = user ? await issueVerification(user) : false;
+    response.status(202).json({
+      emailSent,
+      message: "If that address belongs to an unverified account, a verification link has been sent.",
+    });
   } catch (error) {
-    next(error);
+    console.error("Verification email delivery failed.", error instanceof Error ? error.message : "Unknown email delivery error.");
+    response.status(503).json({ error: { code: "EMAIL_DELIVERY_FAILED", message: "We couldn't send the verification email. Check SMTP settings and try again." } });
   }
 }
 

@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ErrorState } from "@/components/ui/states";
 import { useAuth } from "@/hooks/useAuth";
 import { authService } from "@/services/authService";
+import { ApiError } from "@/services/api";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 import { AuthShell, Field } from "./AuthShell";
 
 type Form = { name: string; email: string; password: string; confirm: string };
@@ -21,15 +23,23 @@ function validate(f: Form): Partial<Form> {
 }
 
 export default function Register() {
-  const { register } = useAuth();
+  const { register, loginWithGoogle } = useAuth();
+  const navigate = useNavigate();
   const [form, setForm] = useState<Form>({ name: "", email: "", password: "", confirm: "" });
   const [touched, setTouched] = useState<Partial<Record<keyof Form, boolean>>>({});
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
+  const [emailDelivered, setEmailDelivered] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const errors = validate(form);
   const hasErrors = Object.keys(errors).length > 0;
+
+  async function onGoogleCredential(credential: string) {
+    setSubmitError(null);
+    await loginWithGoogle(credential);
+    await navigate({ to: "/dashboard" });
+  }
 
   const bind = (k: keyof Form) => ({
     id: k,
@@ -46,9 +56,16 @@ export default function Register() {
     setLoading(true);
     setSubmitError(null);
     try {
-      await register({ name: form.name.trim(), email: form.email, password: form.password });
+      const sent = await register({ name: form.name.trim(), email: form.email, password: form.password });
       setRegisteredEmail(form.email.trim().toLowerCase());
+      setEmailDelivered(sent);
     } catch (error) {
+      if (error instanceof ApiError && error.code === "EMAIL_DELIVERY_FAILED") {
+        setRegisteredEmail(form.email.trim().toLowerCase());
+        setEmailDelivered(false);
+        setResendMessage(error.message);
+        return;
+      }
       setSubmitError(error instanceof Error ? error.message : "We couldn't create your account. Please try again.");
     } finally {
       setLoading(false);
@@ -59,8 +76,11 @@ export default function Register() {
     if (!registeredEmail) return;
     setResendMessage(null);
     try {
-      await authService.resendVerification(registeredEmail);
-      setResendMessage("If that address belongs to an unverified account, a fresh link has been sent. In local development, check the backend terminal.");
+      const sent = await authService.resendVerification(registeredEmail);
+      setEmailDelivered(sent);
+      setResendMessage(sent
+        ? `A fresh verification email was sent to ${registeredEmail}. Check your inbox and spam folder.`
+        : "Email delivery isn't configured yet. For local development, check the backend terminal for the verification link.");
     } catch (error) {
       setResendMessage(error instanceof Error ? error.message : "We couldn't send another link. Please try again.");
     }
@@ -74,8 +94,10 @@ export default function Register() {
     >
       {registeredEmail ? (
         <div className="space-y-4 text-sm leading-6" role="status">
-          <p className="font-medium">Check your email to verify your account.</p>
-          <p className="text-muted-foreground">We sent a verification link to {registeredEmail}. It expires in 24 hours. For local development, check the backend terminal for the link.</p>
+          <p className="font-medium">{emailDelivered ? "Check your email to verify your account." : "Your account is created, but email delivery needs setup."}</p>
+          <p className="text-muted-foreground">{emailDelivered
+            ? <>A verification link was sent to {registeredEmail}. It expires in 24 hours. Check your inbox and spam folder.</>
+            : <>Email delivery is unavailable. For local development, use the verification link printed in the backend terminal. The link expires in 24 hours.</>}</p>
           {resendMessage && <p className="text-muted-foreground">{resendMessage}</p>}
           <Button type="button" variant="outline" className="w-full" onClick={resendVerification}>Resend verification link</Button>
         </div>
@@ -97,6 +119,10 @@ export default function Register() {
           {loading && <Loader2 className="h-4 w-4 animate-spin" />} Create account
         </Button>
       </form>}
+      {!registeredEmail && <>
+        <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border" />or sign up with<span className="h-px flex-1 bg-border" /></div>
+        <GoogleSignInButton onCredential={onGoogleCredential} onError={setSubmitError} />
+      </>}
     </AuthShell>
   );
 }

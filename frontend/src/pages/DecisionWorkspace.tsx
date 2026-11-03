@@ -199,7 +199,7 @@ export default function DecisionWorkspace() {
           {step === 1 && (
             <>
               <StepHeading title="What are your options?" hint="List the alternatives you're comparing. You need at least two." />
-              <AlternativeList items={draft.alternatives} onAdd={api.addAlternative} onAddProduct={api.addProductAlternative} onRename={api.renameAlternative} onRemove={api.removeAlternative} />
+              <AlternativeList items={draft.alternatives} decisionTitle={draft.title} onAdd={api.addAlternative} onAddProduct={api.addProductAlternative} onRename={api.renameAlternative} onRemove={api.removeAlternative} />
             </>
           )}
 

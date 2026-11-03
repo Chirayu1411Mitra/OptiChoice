@@ -54,14 +54,14 @@ export default function CreateDecision() {
           </p>
           <form onSubmit={onSubmit} className="mt-8 space-y-5">
             <Field id="title" label="Decision">
-              <Input id="title" autoFocus placeholder="Which job offer should I accept?" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
+              <Input id="title" autoFocus placeholder="e.g. Which option best fits my priorities?" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
             </Field>
             <Field id="description" label="Context (optional)">
               <Textarea id="description" rows={3} placeholder="I’m comparing pay, flexibility, growth, and commute before choosing." value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} />
             </Field>
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
               <button type="button" onClick={useExample} disabled={saving} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50">
-                <Sparkles className="h-4 w-4" /> Try a filled-in example
+                <Sparkles className="h-4 w-4" /> Try a job-offer example
               </button>
               <Button type="submit" disabled={!title.trim() || saving}>
                 {saving ? "Saving draft…" : <>Continue <ArrowRight className="h-4 w-4" /></>}

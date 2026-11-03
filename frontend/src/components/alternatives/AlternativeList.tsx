@@ -8,13 +8,14 @@ import { decisionService, type ProductSearchResult } from "@/services/decisionSe
 
 interface Props {
   items: Alternative[];
+  decisionTitle: string;
   onAdd: (name: string) => void;
   onAddProduct: (name: string, productInfo: NonNullable<Alternative["productInfo"]>) => void;
   onRename: (id: string, name: string) => void;
   onRemove: (id: string) => void;
 }
 
-export function AlternativeList({ items, onAdd, onAddProduct, onRename, onRemove }: Props) {
+export function AlternativeList({ items, decisionTitle, onAdd, onAddProduct, onRename, onRemove }: Props) {
   const [name, setName] = useState("");
   const [query, setQuery] = useState("");
   const [products, setProducts] = useState<ProductSearchResult[]>([]);
@@ -23,6 +24,7 @@ export function AlternativeList({ items, onAdd, onAddProduct, onRename, onRemove
   const [addingProductId, setAddingProductId] = useState("");
   const [searchError, setSearchError] = useState("");
   const duplicate = items.some((a) => a.name.trim().toLowerCase() === name.trim().toLowerCase());
+  const isPurchaseDecision = /\b(?:buy|purchase|shop|shopping|laptop|notebook|computer|macbook|phone|smartphone|tablet|ipad|headphones?|earbuds?|shoes?|sneakers?|camera|monitor|television|tv|car|vehicle|product)\b/i.test(decisionTitle);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -52,8 +54,9 @@ export function AlternativeList({ items, onAdd, onAddProduct, onRename, onRemove
     const normalized = product.title.trim().toLowerCase();
     if (addingProductId || items.some((item) => item.name.trim().toLowerCase() === normalized)) return;
     setAddingProductId(product.id);
+    const includeLaptopSpecifications = /\b(?:laptop|notebook|macbook|thinkpad|chromebook|ultrabook)\b/i.test(`${decisionTitle} ${product.title}`);
     let specs: NonNullable<Alternative["productInfo"]>["specs"];
-    if (product.productId) {
+    if (product.productId && includeLaptopSpecifications) {
       try {
         specs = await decisionService.getProductSpecifications(product.productId, product.title);
       } catch {
@@ -66,7 +69,7 @@ export function AlternativeList({ items, onAdd, onAddProduct, onRename, onRemove
       fetchedAt,
       price: product.price,
       priceLabel: product.priceLabel,
-      productId: product.productId,
+      productId: includeLaptopSpecifications ? product.productId : null,
       ...(specs ? { specs } : {}),
     });
     setAddingProductId("");
@@ -92,19 +95,19 @@ export function AlternativeList({ items, onAdd, onAddProduct, onRename, onRemove
         </ul>
       )}
       <form onSubmit={submit} className="flex gap-2">
-        <Input placeholder="e.g. MacBook Air" value={name} onChange={(e) => setName(e.target.value)} aria-label="New alternative name" />
+        <Input placeholder="Option name" value={name} onChange={(e) => setName(e.target.value)} aria-label="New alternative name" />
         <Button type="submit" variant="outline" disabled={!name.trim() || duplicate}>
           <Plus className="h-4 w-4" /> Add
         </Button>
       </form>
       {duplicate && name.trim() && <p className="text-xs text-destructive">This option already exists.</p>}
-      <section className="space-y-3 rounded-xl border bg-background p-4">
+      {isPurchaseDecision && <section className="space-y-3 rounded-xl border bg-background p-4">
         <div>
-          <h3 className="text-sm font-semibold">Find laptop options online</h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">Add a listing to look up its price, battery life, weight, and a Geekbench 6 CPU performance estimate when available. We’ll show a source for found details; anything not found can be entered manually.</p>
+          <h3 className="text-sm font-semibold">Find product options online</h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">Search Google Shopping listings and add a result to your comparison. We’ll include the listing price and source when available; verify current details with the retailer.</p>
         </div>
         <form onSubmit={search} className="flex gap-2">
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="e.g. Lenovo ThinkPad X1 Carbon" aria-label="Search laptop products" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search a product or model" aria-label="Search product listings" />
           <Button type="submit" variant="outline" disabled={query.trim().length < 2 || searching}>
             {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
             Search
@@ -128,7 +131,7 @@ export function AlternativeList({ items, onAdd, onAddProduct, onRename, onRemove
           })}
         </ul>}
         {products.length > 0 && <p className="text-[11px] text-muted-foreground">Listings are supplied by an external product search. Check the retailer page for current details.</p>}
-      </section>
+      </section>}
     </div>
   );
 }

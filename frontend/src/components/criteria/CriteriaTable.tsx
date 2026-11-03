@@ -75,7 +75,7 @@ export function CriteriaTable({ items, scoringMode, onAdd, onUpdate, onRemove }:
         </ul>
       )}
       <form onSubmit={submit} className="flex flex-wrap gap-2">
-        <Input className="min-w-0 flex-1" placeholder="e.g. Battery life" value={name} onChange={(e) => setName(e.target.value)} aria-label="New criterion name" />
+        <Input className="min-w-0 flex-1" placeholder="Criterion name" value={name} onChange={(e) => setName(e.target.value)} aria-label="New criterion name" />
         {scoringMode === "relative" && <Input className="w-24" placeholder="Unit" value={unit} maxLength={24} onChange={(e) => setUnit(e.target.value)} aria-label="New criterion unit" />}
         <TypeToggle label="New criterion" value={type} onChange={setType} />
         <Button type="submit" variant="outline" disabled={!name.trim() || duplicate}>
