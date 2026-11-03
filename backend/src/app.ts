@@ -8,7 +8,8 @@ import { apiRoutes } from "./routes/index.js";
 export const app = express();
 
 app.disable("x-powered-by");
-app.use(cors({ origin: env.frontendOrigin }));
+app.set("trust proxy", env.trustProxy);
+app.use(cors({ origin: env.frontendOrigins }));
 app.use(express.json({ limit: "1mb" }));
 app.use("/api", apiRoutes);
 app.use(notFound);

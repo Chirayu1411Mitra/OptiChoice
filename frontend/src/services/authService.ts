@@ -43,17 +43,26 @@ export const authService = {
     });
     return persistSession(session);
   },
-  async register(payload: RegisterPayload): Promise<void> {
-    await request<{ verificationRequired: boolean }>("/auth/register", {
+  async loginWithGoogle(credential: string): Promise<User> {
+    const session = await request<AuthResponse>("/auth/google", {
+      method: "POST",
+      body: JSON.stringify({ credential }),
+    });
+    return persistSession(session);
+  },
+  async register(payload: RegisterPayload): Promise<boolean> {
+    const { emailSent } = await request<{ verificationRequired: boolean; emailSent: boolean }>("/auth/register", {
       method: "POST",
       body: JSON.stringify(payload),
     });
+    return emailSent;
   },
-  async resendVerification(email: string): Promise<void> {
-    await request<{ message: string }>("/auth/resend-verification", {
+  async resendVerification(email: string): Promise<boolean> {
+    const { emailSent } = await request<{ message: string; emailSent: boolean }>("/auth/resend-verification", {
       method: "POST",
       body: JSON.stringify({ email }),
     });
+    return emailSent;
   },
   async verifyEmail(token: string): Promise<void> {
     await request<{ verified: boolean }>("/auth/verify-email", {

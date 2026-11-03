@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { ErrorState } from "@/components/ui/states";
 import { useAuth } from "@/hooks/useAuth";
 import { AuthShell, Field } from "./AuthShell";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,6 +31,12 @@ export default function Login() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function onGoogleCredential(credential: string) {
+    setError(null);
+    await loginWithGoogle(credential);
+    await navigate({ to: "/dashboard" });
   }
 
   return (
@@ -56,6 +63,8 @@ export default function Login() {
           {loading && <Loader2 className="h-4 w-4 animate-spin" />} Log in
         </Button>
       </form>
+      <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border" />or continue with<span className="h-px flex-1 bg-border" /></div>
+      <GoogleSignInButton onCredential={onGoogleCredential} onError={setError} />
     </AuthShell>
   );
 }
