@@ -7,6 +7,7 @@ dist/
 build/
 coverage/
 .output/
+.vercel/
 .wrangler/
 backend/data/*.sqlite
 backend/data/*.sqlite-shm
