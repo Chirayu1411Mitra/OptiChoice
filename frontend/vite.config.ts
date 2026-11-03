@@ -7,6 +7,11 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
+  // The repository's frontend is deployed as its own Vercel project.
+  // Override the Lovable config's default Cloudflare Nitro target.
+  nitro: {
+    preset: "vercel",
+  },
   vite: {
     server: {
       port: 8081,
