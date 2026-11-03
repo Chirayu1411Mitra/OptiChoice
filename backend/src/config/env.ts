@@ -22,7 +22,7 @@ if (!/^[a-zA-Z0-9._-]{1,80}$/.test(geminiModel) || !/^[a-zA-Z0-9._-]{1,80}$/.tes
 export const env = {
   port,
   frontendOrigins,
-  databasePath: process.env.DATABASE_PATH ?? "./data/optichoice.sqlite",
+  databaseUrl: process.env.DATABASE_URL?.trim() || "",
   appBaseUrl: process.env.APP_BASE_URL ?? "http://localhost:8081",
   smtpUser: process.env.SMTP_USER?.trim() || undefined,
   smtpAppPassword: process.env.SMTP_APP_PASSWORD?.replace(/\s/g, "") || undefined,

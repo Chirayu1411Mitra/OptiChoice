@@ -42,18 +42,18 @@ export function tokenDigest(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-export function issueSession(userId: string): { token: string; expiresAt: string } {
+export async function issueSession(userId: string): Promise<{ token: string; expiresAt: string }> {
   const token = randomBytes(32).toString("base64url");
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + SESSION_LIFETIME_MS).toISOString();
-  createSession(tokenDigest(token), userId, createdAt.toISOString(), expiresAt);
+  await createSession(tokenDigest(token), userId, createdAt.toISOString(), expiresAt);
   return { token, expiresAt };
 }
 
-export function authenticateSession(token: string): AuthUser | null {
-  return findUserForSession(tokenDigest(token), new Date().toISOString());
+export async function authenticateSession(token: string): Promise<AuthUser | null> {
+  return await findUserForSession(tokenDigest(token), new Date().toISOString());
 }
 
-export function revokeSession(token: string): void {
-  deleteSession(tokenDigest(token));
+export async function revokeSession(token: string): Promise<void> {
+  await deleteSession(tokenDigest(token));
 }

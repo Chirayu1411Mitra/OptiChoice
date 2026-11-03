@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ArrowUpRight, CalendarClock, Layers3, Plus, Trophy } from "lucide-react";
+import { ArrowUpRight, CalendarClock, FileDown, Layers3, Plus, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Header } from "@/components/layout/Header";
 import { PageBody } from "@/components/layout/AppLayout";
@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { decisionService } from "@/services/decisionService";
 import { DeleteSavedItemButton } from "@/components/decisions/DeleteSavedItemButton";
 import { useAuth } from "@/hooks/useAuth";
+import { generateDecisionPdf } from "@/lib/pdfReport";
 
 export default function History() {
   const { user } = useAuth();
@@ -68,7 +69,24 @@ export default function History() {
                             })}
                           </div>
                         </details>
-                        <div className="mt-4 flex justify-end border-t pt-3">
+                        <div className="mt-4 flex items-center justify-between border-t pt-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => generateDecisionPdf({
+                              title: decision.title,
+                              description: decision.description,
+                              createdAt: decision.createdAt,
+                              scoringMode: decision.scoringMode,
+                              alternatives: decision.alternatives,
+                              criteria: decision.criteria,
+                              ranking: decision.ranking,
+                              breakdown: decision.breakdown,
+                            })}
+                            className="rounded-lg text-xs"
+                          >
+                            <FileDown className="h-3.5 w-3.5" /> Download PDF Report
+                          </Button>
                           <Link to="/decisions/new" className="inline-flex items-center gap-1 text-sm font-medium text-primary">Start another <ArrowUpRight className="h-4 w-4" /></Link>
                         </div>
                       </article>

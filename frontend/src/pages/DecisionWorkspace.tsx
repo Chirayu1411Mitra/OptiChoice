@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, ArrowRight, Loader2, Pencil, Sparkles, Trophy } from "lucide-react";
+import { ArrowLeft, ArrowRight, FileDown, Loader2, Pencil, Sparkles, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +15,7 @@ import { RatingMatrix, isValidValue } from "@/components/decisions/RatingMatrix"
 import { WhatIfAnalysis } from "@/components/decisions/WhatIfAnalysis";
 import { useDecision, type DecisionDraft } from "@/hooks/useDecision";
 import { decisionService, type EvaluateResponse } from "@/services/decisionService";
+import { generateDecisionPdf } from "@/lib/pdfReport";
 
 const STEPS = ["Decision", "Alternatives", "Criteria", "Weights", "Values", "Review"];
 const AI_PROGRESS_MESSAGES = [
@@ -164,6 +165,20 @@ export default function DecisionWorkspace() {
     return specs.performanceScore !== null;
   }
 
+  function downloadReport() {
+    if (!result) return;
+    generateDecisionPdf({
+      title: draft.title,
+      description: draft.description,
+      scoringMode: draft.scoringMode,
+      alternatives: draft.alternatives,
+      criteria: draft.criteria,
+      ranking: result.ranking,
+      breakdown: result.breakdown,
+      aiExplanation: aiExplanation,
+    });
+  }
+
   return (
     <>
       <Header title={draft.title || "Decision workspace"} />
@@ -241,11 +256,18 @@ export default function DecisionWorkspace() {
               <StepHeading title="Review your decision" hint="Check everything below, then send it for evaluation." />
               {result ? (
                 <div className="rounded-lg border bg-card p-6">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-primary">Best fit for your priorities</p>
-                  <div className="mt-2 flex items-baseline gap-3">
-                    <Trophy className="h-5 w-5 self-center text-primary" />
-                    <p className="text-2xl font-semibold tracking-tight">{result.ranking[0]?.alternativeName}</p>
-                    <p className="tabular text-lg text-muted-foreground">{result.ranking[0]?.score}<span className="ml-1 text-sm">/ 100</span></p>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-primary">Best fit for your priorities</p>
+                      <div className="mt-2 flex items-baseline gap-3">
+                        <Trophy className="h-5 w-5 self-center text-primary" />
+                        <p className="text-2xl font-semibold tracking-tight">{result.ranking[0]?.alternativeName}</p>
+                        <p className="tabular text-lg text-muted-foreground">{result.ranking[0]?.score}<span className="ml-1 text-sm">/ 100</span></p>
+                      </div>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={downloadReport} className="self-start rounded-xl sm:self-center">
+                      <FileDown className="h-4 w-4" /> Download PDF report
+                    </Button>
                   </div>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">Scores combine {draft.scoringMode === "relative" ? "values normalized across your options" : "your ratings"} with the importance you assigned to each criterion. A higher score means a closer fit to your stated priorities.</p>
                   <ol className="mt-5 space-y-2">
@@ -356,7 +378,12 @@ export default function DecisionWorkspace() {
                   Continue <ArrowRight className="h-4 w-4" />
                 </Button>
               ) : result ? (
-                <Button asChild><Link to="/dashboard">Back to dashboard</Link></Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" onClick={downloadReport} className="rounded-xl">
+                    <FileDown className="h-4 w-4" /> Download PDF report
+                  </Button>
+                  <Button asChild><Link to="/dashboard">Back to dashboard</Link></Button>
+                </div>
               ) : (
                 <Button onClick={evaluate} disabled={status === "loading"}>
                   {status === "loading" ? <><Loader2 className="h-4 w-4 animate-spin" /> Evaluating…</> : "Evaluate decision"}

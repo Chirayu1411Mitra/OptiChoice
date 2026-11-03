@@ -2,10 +2,35 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { OAuth2Client } from "google-auth-library";
 import { env } from "../config/env.js";
-import { changeUserPassword, completePasswordReset, createEmailVerificationToken, createPasswordResetToken, createUserAndClaimLegacyData, deleteUserAndOwnedData, findOrCreateGoogleUser, findUnverifiedUserByEmail, findUserByEmail, findUserById, findUserIdForPasswordReset, updateUserProfile, verifyUserEmail } from "../repositories/user.repository.js";
+import {
+  changeUserPassword,
+  completePasswordReset,
+  createEmailVerificationToken,
+  createPasswordResetToken,
+  createUserAndClaimLegacyData,
+  deleteUserAndOwnedData,
+  findOrCreateGoogleUser,
+  findUnverifiedUserByEmail,
+  findUserByEmail,
+  findUserById,
+  findUserIdForPasswordReset,
+  updateUserProfile,
+  verifyUserEmail,
+} from "../repositories/user.repository.js";
 import { hashPassword, issueSession, revokeSession, tokenDigest, verifyPassword } from "../services/auth.service.js";
 import { sendPasswordResetEmail, sendVerificationEmail } from "../services/email.service.js";
-import { changePasswordSchema, deleteAccountSchema, forgotPasswordSchema, googleLoginSchema, loginSchema, registerSchema, resendVerificationSchema, resetPasswordSchema, updateProfileSchema, verifyEmailSchema } from "../validation/auth.schema.js";
+import {
+  changePasswordSchema,
+  deleteAccountSchema,
+  forgotPasswordSchema,
+  googleLoginSchema,
+  loginSchema,
+  registerSchema,
+  resendVerificationSchema,
+  resetPasswordSchema,
+  updateProfileSchema,
+  verifyEmailSchema,
+} from "../validation/auth.schema.js";
 
 const googleClient = new OAuth2Client();
 
@@ -20,15 +45,15 @@ export async function registerController(request: Request, response: Response, n
     return;
   }
 
-  if (findUserByEmail(parsed.data.email)) {
+  if (await findUserByEmail(parsed.data.email)) {
     response.status(409).json({ error: { code: "EMAIL_IN_USE", message: "An account with this email already exists." } });
     return;
   }
 
   const createdAt = new Date().toISOString();
-  let user: ReturnType<typeof createUserAndClaimLegacyData>;
+  let user: Awaited<ReturnType<typeof createUserAndClaimLegacyData>>;
   try {
-    user = createUserAndClaimLegacyData({
+    user = await createUserAndClaimLegacyData({
       id: randomUUID(),
       name: parsed.data.name,
       email: parsed.data.email,
@@ -41,7 +66,7 @@ export async function registerController(request: Request, response: Response, n
       createdAt,
     });
   } catch (error) {
-    if (findUserByEmail(parsed.data.email)) {
+    if (await findUserByEmail(parsed.data.email)) {
       response.status(409).json({ error: { code: "EMAIL_IN_USE", message: "An account with this email already exists." } });
       return;
     }
@@ -66,7 +91,7 @@ export async function loginController(request: Request, response: Response, next
   }
 
   try {
-    const user = findUserByEmail(parsed.data.email);
+    const user = await findUserByEmail(parsed.data.email);
     if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
       response.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Email or password is incorrect." } });
       return;
@@ -75,7 +100,7 @@ export async function loginController(request: Request, response: Response, next
       response.status(403).json({ error: { code: "EMAIL_NOT_VERIFIED", message: "Verify your email before logging in. Check your inbox or request a new verification link." } });
       return;
     }
-    const session = issueSession(user.id);
+    const session = await issueSession(user.id);
     response.status(200).json({
       user: { id: user.id, name: user.name, email: user.email, createdAt: user.createdAt, dateOfBirth: user.dateOfBirth, gender: user.gender, phoneNumber: user.phoneNumber, location: user.location },
       ...session,
@@ -111,7 +136,7 @@ export async function googleLoginController(request: Request, response: Response
 
   try {
     const now = new Date().toISOString();
-    const user = findOrCreateGoogleUser({
+    const user = await findOrCreateGoogleUser({
       id: randomUUID(),
       googleSub: payload.sub,
       name: payload.name?.trim() || payload.email.split("@")[0] || "Google user",
@@ -119,7 +144,7 @@ export async function googleLoginController(request: Request, response: Response
       passwordHash: `google$${randomBytes(48).toString("base64url")}`,
       createdAt: now,
     });
-    const session = issueSession(user.id);
+    const session = await issueSession(user.id);
     response.status(200).json({ user, ...session });
   } catch (error) {
     next(error);
@@ -129,7 +154,7 @@ export async function googleLoginController(request: Request, response: Response
 async function issueVerification(user: { id: string; email: string }): Promise<boolean> {
   const token = randomBytes(32).toString("base64url");
   const now = new Date();
-  createEmailVerificationToken(user.id, tokenDigest(token), now.toISOString(), new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString());
+  await createEmailVerificationToken(user.id, tokenDigest(token), now.toISOString(), new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString());
   return sendVerificationEmail(user.email, token);
 }
 
@@ -140,7 +165,7 @@ export async function resendVerificationController(request: Request, response: R
     return;
   }
   try {
-    const user = findUnverifiedUserByEmail(parsed.data.email);
+    const user = await findUnverifiedUserByEmail(parsed.data.email);
     const emailSent = user ? await issueVerification(user) : false;
     response.status(202).json({
       emailSent,
@@ -152,18 +177,22 @@ export async function resendVerificationController(request: Request, response: R
   }
 }
 
-export function verifyEmailController(request: Request, response: Response): void {
+export async function verifyEmailController(request: Request, response: Response, next: NextFunction): Promise<void> {
   const parsed = verifyEmailSchema.safeParse(request.body);
   if (!parsed.success) {
     invalidBody(response, "This verification link is invalid or expired. Request a new one.");
     return;
   }
-  const verified = verifyUserEmail(tokenDigest(parsed.data.token), new Date().toISOString());
-  if (!verified) {
-    response.status(400).json({ error: { code: "INVALID_VERIFICATION_TOKEN", message: "This verification link is invalid or expired. Request a new one." } });
-    return;
+  try {
+    const verified = await verifyUserEmail(tokenDigest(parsed.data.token), new Date().toISOString());
+    if (!verified) {
+      response.status(400).json({ error: { code: "INVALID_VERIFICATION_TOKEN", message: "This verification link is invalid or expired. Request a new one." } });
+      return;
+    }
+    response.status(200).json({ verified: true });
+  } catch (error) {
+    next(error);
   }
-  response.status(200).json({ verified: true });
 }
 
 export function currentUserController(request: Request, response: Response): void {
@@ -174,13 +203,17 @@ export function currentUserController(request: Request, response: Response): voi
   response.status(200).json({ user: request.authUser });
 }
 
-export function logoutController(request: Request, response: Response): void {
-  const token = (request.get("authorization") ?? "").split(" ")[1];
-  if (token) revokeSession(token);
-  response.status(204).end();
+export async function logoutController(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const token = (request.get("authorization") ?? "").split(" ")[1];
+    if (token) await revokeSession(token);
+    response.status(204).end();
+  } catch (error) {
+    next(error);
+  }
 }
 
-export function updateProfileController(request: Request, response: Response, next: NextFunction): void {
+export async function updateProfileController(request: Request, response: Response, next: NextFunction): Promise<void> {
   const parsed = updateProfileSchema.safeParse(request.body);
   if (!parsed.success) {
     invalidBody(response, parsed.error.issues[0]?.message ?? "Check your name and try again.");
@@ -191,7 +224,7 @@ export function updateProfileController(request: Request, response: Response, ne
     return;
   }
   try {
-    const user = updateUserProfile(request.authUser.id, parsed.data);
+    const user = await updateUserProfile(request.authUser.id, parsed.data);
     if (!user) {
       response.status(404).json({ error: { code: "USER_NOT_FOUND", message: "This account could not be found." } });
       return;
@@ -220,13 +253,13 @@ export async function changePasswordController(request: Request, response: Respo
   }
 
   try {
-    const user = findUserById(userId);
+    const user = await findUserById(userId);
     if (!user || !(await verifyPassword(parsed.data.currentPassword, user.passwordHash))) {
       response.status(400).json({ error: { code: "CURRENT_PASSWORD_INCORRECT", message: "Your current password is incorrect." } });
       return;
     }
     const passwordHash = await hashPassword(parsed.data.newPassword);
-    changeUserPassword(userId, passwordHash, tokenDigest(token));
+    await changeUserPassword(userId, passwordHash, tokenDigest(token));
     response.status(200).json({ changed: true });
   } catch (error) {
     next(error);
@@ -245,12 +278,12 @@ export async function deleteAccountController(request: Request, response: Respon
     return;
   }
   try {
-    const user = findUserById(userId);
+    const user = await findUserById(userId);
     if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
       response.status(400).json({ error: { code: "PASSWORD_INCORRECT", message: "Your password is incorrect. Your account has not been deleted." } });
       return;
     }
-    if (!deleteUserAndOwnedData(userId)) {
+    if (!(await deleteUserAndOwnedData(userId))) {
       response.status(404).json({ error: { code: "USER_NOT_FOUND", message: "This account could not be found." } });
       return;
     }
@@ -267,11 +300,11 @@ export async function forgotPasswordController(request: Request, response: Respo
     return;
   }
   try {
-    const user = findUserByEmail(parsed.data.email);
+    const user = await findUserByEmail(parsed.data.email);
     if (user) {
       const token = randomBytes(32).toString("base64url");
       const now = new Date();
-      createPasswordResetToken(user.id, tokenDigest(token), now.toISOString(), new Date(now.getTime() + 30 * 60 * 1000).toISOString());
+      await createPasswordResetToken(user.id, tokenDigest(token), now.toISOString(), new Date(now.getTime() + 30 * 60 * 1000).toISOString());
       try {
         await sendPasswordResetEmail(user.email, token);
       } catch (error) {
@@ -293,13 +326,13 @@ export async function resetPasswordController(request: Request, response: Respon
   try {
     const tokenHash = tokenDigest(parsed.data.token);
     const now = new Date().toISOString();
-    const userId = findUserIdForPasswordReset(tokenHash, now);
+    const userId = await findUserIdForPasswordReset(tokenHash, now);
     if (!userId) {
       response.status(400).json({ error: { code: "INVALID_RESET_TOKEN", message: "This reset link is invalid or expired. Request a new one." } });
       return;
     }
     const passwordHash = await hashPassword(parsed.data.newPassword);
-    if (!completePasswordReset(userId, tokenHash, passwordHash, new Date().toISOString())) {
+    if (!(await completePasswordReset(userId, tokenHash, passwordHash, new Date().toISOString()))) {
       response.status(400).json({ error: { code: "INVALID_RESET_TOKEN", message: "This reset link is invalid or expired. Request a new one." } });
       return;
     }
