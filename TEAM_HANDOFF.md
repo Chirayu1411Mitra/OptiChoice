@@ -9,7 +9,7 @@ OptiChoice helps a user compare options against priorities they choose. It calcu
 ## Current structure and ownership areas
 
 - `frontend/` — React + TypeScript website: account flows, dashboard, profile, history, decision wizard, comparisons, and results.
-- `backend/` — Express + TypeScript API: authentication, email verification and password recovery, user profile/account handling, decisions/drafts, product lookup, SQLite persistence, validation, and API routes.
+- `backend/` — Express + TypeScript API: authentication, email verification and password recovery, user profile/account handling, decisions/drafts, product lookup, PostgreSQL (Neon) persistence, validation, and API routes.
 - `decision-engine/` — deterministic scoring, normalization, rankings, and score breakdowns.
 - `ai/` — planning documentation only; the AI explanation feature has not been implemented or connected.
 - `docs/` — architecture, API, database, and project documentation.
@@ -56,7 +56,7 @@ npm install
 npm run dev
 ```
 
-The frontend is configured for `http://localhost:8081` and proxies `/api` to the backend at `http://127.0.0.1:3001`. Use the URL printed by Vite if the local configuration differs. The backend creates/uses `backend/data/optichoice.sqlite` by default.
+The frontend is configured for `http://localhost:8081` and proxies `/api` to the backend at `http://127.0.0.1:3001`. Use the URL printed by Vite if the local configuration differs. The backend connects to PostgreSQL (Neon) via `DATABASE_URL` in `backend/.env`.
 
 For laptop search, put a personal SerpApi key in `backend/.env` as `SERPAPI_API_KEY=...`. Keep it private; never put real credentials in `.env.example`, source code, commits, screenshots, or ChatGPT prompts. Local email verification/password reset can print links in the backend terminal; real sending needs Resend configuration in `backend/.env`.
 

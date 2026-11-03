@@ -1,7 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { runEvaluation } from "../services/evaluation.service.js";
-import { createDraft, deleteDecision, deleteDraft, getDecision, getDraft, listDecisions, listDrafts, saveDecision, updateDraft } from "../repositories/decision.repository.js";
+import {
+  createDraft,
+  deleteDecision,
+  deleteDraft,
+  getDecision,
+  getDraft,
+  listDecisions,
+  listDrafts,
+  saveDecision,
+  updateDraft,
+} from "../repositories/decision.repository.js";
 import { draftSchema } from "../validation/draft.schema.js";
 import { evaluationRequestSchema } from "../validation/evaluation.schema.js";
 import { z } from "zod";
@@ -16,7 +26,7 @@ function currentUserId(request: Request, response: Response): string | null {
   return request.authUser.id;
 }
 
-export function evaluateDecisionController(request: Request, response: Response, next: NextFunction): void {
+export async function evaluateDecisionController(request: Request, response: Response, next: NextFunction): Promise<void> {
   const userId = currentUserId(request, response);
   if (!userId) return;
   const parsed = evaluationRequestSchema.safeParse(request.body);
@@ -30,47 +40,52 @@ export function evaluateDecisionController(request: Request, response: Response,
     return;
   }
 
-  if (parsed.data.draftId && !getDraft(parsed.data.draftId, userId)) {
-    response.status(404).json({ error: { code: "DRAFT_NOT_FOUND", message: "This draft may have been completed or removed." } });
-    return;
-  }
-
-  let result;
   try {
-    result = runEvaluation(parsed.data);
-  } catch (error) {
-    response.status(422).json({
-      error: {
-        code: "INVALID_DECISION",
-        message: error instanceof Error ? error.message : "The decision could not be evaluated.",
-      },
-    });
-    return;
-  }
+    if (parsed.data.draftId && !(await getDraft(parsed.data.draftId, userId))) {
+      response.status(404).json({ error: { code: "DRAFT_NOT_FOUND", message: "This draft may have been completed or removed." } });
+      return;
+    }
 
-  const createdAt = new Date().toISOString();
-  const decision = {
-    id: randomUUID(),
-    userId,
-    ...parsed.data,
-    status: "completed" as const,
-    createdAt,
-    updatedAt: createdAt,
-    ...result,
-  };
-  try {
-    saveDecision(decision, parsed.data.draftId);
+    let result;
+    try {
+      result = runEvaluation(parsed.data);
+    } catch (error) {
+      response.status(422).json({
+        error: {
+          code: "INVALID_DECISION",
+          message: error instanceof Error ? error.message : "The decision could not be evaluated.",
+        },
+      });
+      return;
+    }
+
+    const createdAt = new Date().toISOString();
+    const decision = {
+      id: randomUUID(),
+      userId,
+      ...parsed.data,
+      status: "completed" as const,
+      createdAt,
+      updatedAt: createdAt,
+      ...result,
+    };
+
+    await saveDecision(decision, parsed.data.draftId);
+    response.status(200).json({ decisionId: decision.id, createdAt, ...result });
   } catch (error) {
     next(error);
-    return;
   }
-  response.status(200).json({ decisionId: decision.id, createdAt, ...result });
 }
 
-export function listDecisionsController(_request: Request, response: Response): void {
+export async function listDecisionsController(_request: Request, response: Response, next: NextFunction): Promise<void> {
   const userId = currentUserId(_request, response);
   if (!userId) return;
-  response.status(200).json({ decisions: listDecisions(userId) });
+  try {
+    const decisions = await listDecisions(userId);
+    response.status(200).json({ decisions });
+  } catch (error) {
+    next(error);
+  }
 }
 
 export async function decisionExplanationController(request: Request, response: Response, next: NextFunction): Promise<void> {
@@ -83,13 +98,13 @@ export async function decisionExplanationController(request: Request, response: 
     return;
   }
 
-  const decision = getDecision(id.data, userId);
-  if (!decision) {
-    response.status(404).json({ error: { code: "DECISION_NOT_FOUND", message: "That evaluation could not be found." } });
-    return;
-  }
-
   try {
+    const decision = await getDecision(id.data, userId);
+    if (!decision) {
+      response.status(404).json({ error: { code: "DECISION_NOT_FOUND", message: "That evaluation could not be found." } });
+      return;
+    }
+
     const result = await generateDecisionExplanation(decision);
     response.status(200).json({ ...result, generatedAt: new Date().toISOString() });
   } catch (error) {
@@ -101,7 +116,7 @@ export async function decisionExplanationController(request: Request, response: 
   }
 }
 
-export function deleteDecisionController(request: Request, response: Response): void {
+export async function deleteDecisionController(request: Request, response: Response, next: NextFunction): Promise<void> {
   const userId = currentUserId(request, response);
   if (!userId) return;
   const id = z.uuid().safeParse(request.params["id"]);
@@ -109,20 +124,29 @@ export function deleteDecisionController(request: Request, response: Response): 
     response.status(400).json({ error: { code: "INVALID_DECISION_ID", message: "That decision ID is not valid." } });
     return;
   }
-  if (!deleteDecision(id.data, userId)) {
-    response.status(404).json({ error: { code: "DECISION_NOT_FOUND", message: "That evaluation could not be found." } });
-    return;
+  try {
+    if (!(await deleteDecision(id.data, userId))) {
+      response.status(404).json({ error: { code: "DECISION_NOT_FOUND", message: "That evaluation could not be found." } });
+      return;
+    }
+    response.status(200).json({ deleted: true });
+  } catch (error) {
+    next(error);
   }
-  response.status(200).json({ deleted: true });
 }
 
-export function listDraftsController(_request: Request, response: Response): void {
+export async function listDraftsController(_request: Request, response: Response, next: NextFunction): Promise<void> {
   const userId = currentUserId(_request, response);
   if (!userId) return;
-  response.status(200).json({ drafts: listDrafts(userId) });
+  try {
+    const drafts = await listDrafts(userId);
+    response.status(200).json({ drafts });
+  } catch (error) {
+    next(error);
+  }
 }
 
-export function deleteDraftController(request: Request, response: Response): void {
+export async function deleteDraftController(request: Request, response: Response, next: NextFunction): Promise<void> {
   const userId = currentUserId(request, response);
   if (!userId) return;
   const id = z.uuid().safeParse(request.params["id"]);
@@ -130,14 +154,18 @@ export function deleteDraftController(request: Request, response: Response): voi
     response.status(400).json({ error: { code: "INVALID_DRAFT_ID", message: "That draft ID is not valid." } });
     return;
   }
-  if (!deleteDraft(id.data, userId)) {
-    response.status(404).json({ error: { code: "DRAFT_NOT_FOUND", message: "That draft could not be found." } });
-    return;
+  try {
+    if (!(await deleteDraft(id.data, userId))) {
+      response.status(404).json({ error: { code: "DRAFT_NOT_FOUND", message: "That draft could not be found." } });
+      return;
+    }
+    response.status(200).json({ deleted: true });
+  } catch (error) {
+    next(error);
   }
-  response.status(200).json({ deleted: true });
 }
 
-export function createDraftController(request: Request, response: Response, next: NextFunction): void {
+export async function createDraftController(request: Request, response: Response, next: NextFunction): Promise<void> {
   const userId = currentUserId(request, response);
   if (!userId) return;
   const parsed = draftSchema.safeParse(request.body);
@@ -147,14 +175,14 @@ export function createDraftController(request: Request, response: Response, next
   }
   try {
     const createdAt = new Date().toISOString();
-    const draft = createDraft(userId, randomUUID(), parsed.data, createdAt);
+    const draft = await createDraft(userId, randomUUID(), parsed.data, createdAt);
     response.status(201).json({ draft });
   } catch (error) {
     next(error);
   }
 }
 
-export function getDraftController(request: Request, response: Response): void {
+export async function getDraftController(request: Request, response: Response, next: NextFunction): Promise<void> {
   const userId = currentUserId(request, response);
   if (!userId) return;
   const id = z.uuid().safeParse(request.params["id"]);
@@ -162,15 +190,19 @@ export function getDraftController(request: Request, response: Response): void {
     response.status(400).json({ error: { code: "INVALID_DRAFT_ID", message: "That draft ID is not valid." } });
     return;
   }
-  const draft = getDraft(id.data, userId);
-  if (!draft) {
-    response.status(404).json({ error: { code: "DRAFT_NOT_FOUND", message: "This draft may have been completed or removed." } });
-    return;
+  try {
+    const draft = await getDraft(id.data, userId);
+    if (!draft) {
+      response.status(404).json({ error: { code: "DRAFT_NOT_FOUND", message: "This draft may have been completed or removed." } });
+      return;
+    }
+    response.status(200).json({ draft });
+  } catch (error) {
+    next(error);
   }
-  response.status(200).json({ draft });
 }
 
-export function updateDraftController(request: Request, response: Response, next: NextFunction): void {
+export async function updateDraftController(request: Request, response: Response, next: NextFunction): Promise<void> {
   const userId = currentUserId(request, response);
   if (!userId) return;
   const id = z.uuid().safeParse(request.params["id"]);
@@ -184,7 +216,7 @@ export function updateDraftController(request: Request, response: Response, next
     return;
   }
   try {
-    const draft = updateDraft(id.data, userId, parsed.data, new Date().toISOString());
+    const draft = await updateDraft(id.data, userId, parsed.data, new Date().toISOString());
     if (!draft) {
       response.status(404).json({ error: { code: "DRAFT_NOT_FOUND", message: "This draft may have been completed or removed." } });
       return;

@@ -26,7 +26,7 @@ ai/                Gemini explanation service and prompt/schema
 docs/              Architecture, API, database, and project documentation
 ```
 
-The backend provides registration, email verification, Google sign-in, profile, password recovery, sessions, evaluation, history, and draft routes. Verification and password recovery use Gmail SMTP when configured; otherwise local development prints the link in the API terminal. Evaluations and unfinished drafts are saved in SQLite and belong to the signed-in account. In development, the frontend proxies `/api` to the backend. What-If changes recalculate immediately in the browser and are not saved as new evaluations. Gemini explains completed decisions but does not change their deterministic ranking.
+The backend provides registration, email verification, Google sign-in, profile, password recovery, sessions, evaluation, history, and draft routes. Verification and password recovery use Gmail SMTP when configured; otherwise local development prints the link in the API terminal. Evaluations and unfinished drafts are saved in PostgreSQL (Neon) and belong to the signed-in account. In development, the frontend proxies `/api` to the backend. What-If changes recalculate immediately in the browser and are not saved as new evaluations. Gemini explains completed decisions but does not change their deterministic ranking.
 
 ## Run locally
 

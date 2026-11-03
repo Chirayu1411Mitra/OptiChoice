@@ -1,4 +1,4 @@
-import { database } from "../database/database.js";
+import { pool } from "../database/database.js";
 import type { EvaluationRequestBody } from "../validation/evaluation.schema.js";
 import { draftSchema, type DraftBody } from "../validation/draft.schema.js";
 
@@ -23,53 +23,14 @@ export interface SavedDecision {
   breakdown: { alternativeId: string; contributions: { criterionId: string; criterionName: string; value: number; inputValue?: number; normalizedValue?: number; unit?: string }[] }[];
 }
 
-export function saveDecision(decision: SavedDecision & { userId: string }, draftId?: string): void {
-  const insert = database.prepare(`
-    INSERT INTO decisions (
-      id, user_id, title, description, alternatives_json, criteria_json, ratings_json,
-      ranking_json, breakdown_json, scoring_mode, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  database.exec("BEGIN IMMEDIATE");
-  try {
-    insert.run(
-    decision.id,
-    decision.userId,
-    decision.title,
-    decision.description,
-    JSON.stringify(decision.alternatives),
-    JSON.stringify(decision.criteria),
-    JSON.stringify(decision.ratings),
-    JSON.stringify(decision.ranking),
-    JSON.stringify(decision.breakdown),
-    decision.scoringMode,
-    decision.createdAt,
-    );
-    if (draftId) {
-      const removedDraft = database.prepare("DELETE FROM decision_drafts WHERE id = ? AND user_id = ?").run(draftId, decision.userId);
-      if (removedDraft.changes === 0) throw new Error("The draft was not found for this user.");
-    }
-    database.exec("COMMIT");
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
+function parseJsonField<T>(value: unknown): T {
+  if (typeof value === "string") {
+    return JSON.parse(value);
   }
+  return value as T;
 }
 
-export function listDecisions(userId: string): SavedDecision[] {
-  const rows = database.prepare(`
-    SELECT id, title, description, alternatives_json, criteria_json, ratings_json,
-      ranking_json, breakdown_json, scoring_mode, created_at
-    FROM decisions
-    WHERE user_id = ?
-    ORDER BY created_at DESC, rowid DESC
-  `).all(userId);
-
-  return rows.map((row) => mapSavedDecision(row as Record<string, string>));
-}
-
-function mapSavedDecision(saved: Record<string, string>): SavedDecision {
+function mapSavedDecision(saved: Record<string, any>): SavedDecision {
   return {
     id: saved["id"]!,
     title: saved["title"]!,
@@ -78,75 +39,137 @@ function mapSavedDecision(saved: Record<string, string>): SavedDecision {
     scoringMode: (saved["scoring_mode"] ?? "rating") as "rating" | "relative",
     createdAt: saved["created_at"]!,
     updatedAt: saved["created_at"]!,
-    alternatives: JSON.parse(saved["alternatives_json"]!),
-    criteria: JSON.parse(saved["criteria_json"]!),
-    ratings: JSON.parse(saved["ratings_json"]!),
-    ranking: JSON.parse(saved["ranking_json"]!),
-    breakdown: JSON.parse(saved["breakdown_json"]!),
+    alternatives: parseJsonField(saved["alternatives_json"]),
+    criteria: parseJsonField(saved["criteria_json"]),
+    ratings: parseJsonField(saved["ratings_json"]),
+    ranking: parseJsonField(saved["ranking_json"]),
+    breakdown: parseJsonField(saved["breakdown_json"]),
   };
 }
 
-export function getDecision(id: string, userId: string): SavedDecision | null {
-  const row = database.prepare(`
-    SELECT id, title, description, alternatives_json, criteria_json, ratings_json,
+export async function saveDecision(decision: SavedDecision & { userId: string }, draftId?: string): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO decisions (
+        id, user_id, title, description, alternatives_json, criteria_json, ratings_json,
+        ranking_json, breakdown_json, scoring_mode, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        decision.id,
+        decision.userId,
+        decision.title,
+        decision.description,
+        JSON.stringify(decision.alternatives),
+        JSON.stringify(decision.criteria),
+        JSON.stringify(decision.ratings),
+        JSON.stringify(decision.ranking),
+        JSON.stringify(decision.breakdown),
+        decision.scoringMode,
+        decision.createdAt,
+      ]
+    );
+    if (draftId) {
+      const removedDraft = await client.query(
+        "DELETE FROM decision_drafts WHERE id = $1 AND user_id = $2",
+        [draftId, decision.userId]
+      );
+      if ((removedDraft.rowCount ?? 0) === 0) {
+        throw new Error("The draft was not found for this user.");
+      }
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listDecisions(userId: string): Promise<SavedDecision[]> {
+  const res = await pool.query(
+    `SELECT id, title, description, alternatives_json, criteria_json, ratings_json,
       ranking_json, breakdown_json, scoring_mode, created_at
-    FROM decisions WHERE id = ? AND user_id = ?
-  `).get(id, userId);
-  return row ? mapSavedDecision(row as Record<string, string>) : null;
+    FROM decisions
+    WHERE user_id = $1
+    ORDER BY created_at DESC, id DESC`,
+    [userId]
+  );
+
+  return res.rows.map((row) => mapSavedDecision(row));
 }
 
-export function deleteDecision(id: string, userId: string): boolean {
-  return database.prepare("DELETE FROM decisions WHERE id = ? AND user_id = ?").run(id, userId).changes > 0;
+export async function getDecision(id: string, userId: string): Promise<SavedDecision | null> {
+  const res = await pool.query(
+    `SELECT id, title, description, alternatives_json, criteria_json, ratings_json,
+      ranking_json, breakdown_json, scoring_mode, created_at
+    FROM decisions WHERE id = $1 AND user_id = $2`,
+    [id, userId]
+  );
+  return res.rows[0] ? mapSavedDecision(res.rows[0]) : null;
 }
 
-export function createDraft(userId: string, id: string, draft: DraftBody, createdAt: string): SavedDraft {
-  database.prepare(`
-    INSERT INTO decision_drafts (id, user_id, title, description, draft_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, userId, draft.title, draft.description, JSON.stringify(draft), createdAt, createdAt);
+export async function deleteDecision(id: string, userId: string): Promise<boolean> {
+  const res = await pool.query("DELETE FROM decisions WHERE id = $1 AND user_id = $2", [id, userId]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function createDraft(userId: string, id: string, draft: DraftBody, createdAt: string): Promise<SavedDraft> {
+  await pool.query(
+    `INSERT INTO decision_drafts (id, user_id, title, description, draft_json, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [id, userId, draft.title, draft.description, JSON.stringify(draft), createdAt, createdAt]
+  );
   return { id, ...draft, createdAt, updatedAt: createdAt };
 }
 
-export function updateDraft(id: string, userId: string, draft: DraftBody, updatedAt: string): SavedDraft | null {
-  const result = database.prepare(`
-    UPDATE decision_drafts
-    SET title = ?, description = ?, draft_json = ?, updated_at = ?
-    WHERE id = ? AND user_id = ?
-  `).run(draft.title, draft.description, JSON.stringify(draft), updatedAt, id, userId);
-  if (result.changes === 0) return null;
+export async function updateDraft(id: string, userId: string, draft: DraftBody, updatedAt: string): Promise<SavedDraft | null> {
+  const res = await pool.query(
+    `UPDATE decision_drafts
+    SET title = $1, description = $2, draft_json = $3, updated_at = $4
+    WHERE id = $5 AND user_id = $6`,
+    [draft.title, draft.description, JSON.stringify(draft), updatedAt, id, userId]
+  );
+  if ((res.rowCount ?? 0) === 0) return null;
   return getDraft(id, userId);
 }
 
-export function getDraft(id: string, userId: string): SavedDraft | null {
-  const row = database.prepare(`
-    SELECT id, draft_json, created_at, updated_at FROM decision_drafts WHERE id = ? AND user_id = ?
-  `).get(id, userId);
-  if (!row) return null;
-  const saved = row as { id: string; draft_json: string; created_at: string; updated_at: string };
+export async function getDraft(id: string, userId: string): Promise<SavedDraft | null> {
+  const res = await pool.query(
+    `SELECT id, draft_json, created_at, updated_at FROM decision_drafts WHERE id = $1 AND user_id = $2`,
+    [id, userId]
+  );
+  if (res.rows.length === 0) return null;
+  const saved = res.rows[0];
+  const parsedDraft = parseJsonField(saved.draft_json);
   return {
     id: saved.id,
-    ...draftSchema.parse(JSON.parse(saved.draft_json)),
+    ...draftSchema.parse(parsedDraft),
     createdAt: saved.created_at,
     updatedAt: saved.updated_at,
   };
 }
 
-export function listDrafts(userId: string): SavedDraft[] {
-  const rows = database.prepare(`
-    SELECT id, draft_json, created_at, updated_at
-    FROM decision_drafts WHERE user_id = ? ORDER BY updated_at DESC, rowid DESC
-  `).all(userId);
-  return rows.map((row) => {
-    const saved = row as { id: string; draft_json: string; created_at: string; updated_at: string };
+export async function listDrafts(userId: string): Promise<SavedDraft[]> {
+  const res = await pool.query(
+    `SELECT id, draft_json, created_at, updated_at
+    FROM decision_drafts WHERE user_id = $1 ORDER BY updated_at DESC, id DESC`,
+    [userId]
+  );
+  return res.rows.map((saved) => {
+    const parsedDraft = parseJsonField(saved.draft_json);
     return {
       id: saved.id,
-      ...draftSchema.parse(JSON.parse(saved.draft_json)),
+      ...draftSchema.parse(parsedDraft),
       createdAt: saved.created_at,
       updatedAt: saved.updated_at,
     };
   });
 }
 
-export function deleteDraft(id: string, userId: string): boolean {
-  return database.prepare("DELETE FROM decision_drafts WHERE id = ? AND user_id = ?").run(id, userId).changes > 0;
+export async function deleteDraft(id: string, userId: string): Promise<boolean> {
+  const res = await pool.query("DELETE FROM decision_drafts WHERE id = $1 AND user_id = $2", [id, userId]);
+  return (res.rowCount ?? 0) > 0;
 }
