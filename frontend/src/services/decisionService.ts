@@ -31,6 +31,14 @@ export interface EvaluateResponse {
   breakdown: ScoreBreakdown[];
 }
 
+export interface DecisionExplanation {
+  summary: string;
+  winnerReason: string;
+  strengths: string[];
+  tradeoffs: string[];
+  assumptions: string[];
+}
+
 export interface ProductSearchResult {
   id: string;
   productId: string | null;
@@ -99,6 +107,9 @@ export const decisionService = {
   },
   async deleteDecision(id: string): Promise<void> {
     await request<{ deleted: boolean }>(`/decisions/${id}`, { method: "DELETE" });
+  },
+  async explain(id: string): Promise<{ explanation: DecisionExplanation; model: string; generatedAt: string }> {
+    return request(`/decisions/${id}/explanation`, { method: "POST" });
   },
   /** The backend validates the request and calls the deterministic engine. */
   async evaluate(req: EvaluateRequest): Promise<EvaluateResponse> {

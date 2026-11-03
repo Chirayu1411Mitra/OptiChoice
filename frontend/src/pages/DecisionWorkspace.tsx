@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, ArrowRight, Loader2, Pencil, Trophy } from "lucide-react";
+import { ArrowLeft, ArrowRight, Loader2, Pencil, Sparkles, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,6 +17,11 @@ import { useDecision, type DecisionDraft } from "@/hooks/useDecision";
 import { decisionService, type EvaluateResponse } from "@/services/decisionService";
 
 const STEPS = ["Decision", "Alternatives", "Criteria", "Weights", "Values", "Review"];
+const AI_PROGRESS_MESSAGES = [
+  "Sending your decision details securely…",
+  "Reviewing the scores and priorities…",
+  "Preparing a clear explanation…",
+];
 
 function stepError(i: number, d: DecisionDraft): string | null {
   switch (i) {
@@ -67,6 +72,21 @@ export default function DecisionWorkspace() {
   const [editingInfo, setEditingInfo] = useState(false);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [result, setResult] = useState<EvaluateResponse | null>(null);
+  const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "error" | "ready">("idle");
+  const [aiError, setAiError] = useState("");
+  const [aiProgressIndex, setAiProgressIndex] = useState(0);
+  const [aiExplanation, setAiExplanation] = useState<Awaited<ReturnType<typeof decisionService.explain>> | null>(null);
+
+  useEffect(() => {
+    if (aiStatus !== "loading") {
+      setAiProgressIndex(0);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setAiProgressIndex((current) => (current + 1) % AI_PROGRESS_MESSAGES.length);
+    }, 2600);
+    return () => window.clearInterval(timer);
+  }, [aiStatus]);
 
   useEffect(() => {
     if (!api.ready) return;
@@ -111,9 +131,26 @@ export default function DecisionWorkspace() {
       });
       api.completeDraft();
       setResult(res);
+      setAiStatus("idle");
+      setAiError("");
+      setAiExplanation(null);
       setStatus("idle");
     } catch {
       setStatus("error");
+    }
+  }
+
+  async function explainResult() {
+    if (!result) return;
+    setAiStatus("loading");
+    setAiError("");
+    try {
+      const response = await decisionService.explain(result.decisionId);
+      setAiExplanation(response);
+      setAiStatus("ready");
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "Gemini could not complete this explanation.");
+      setAiStatus("error");
     }
   }
 
@@ -236,6 +273,31 @@ export default function DecisionWorkspace() {
                       })}
                     </div>
                   </details>
+                  <section className="mt-5 rounded-xl border bg-background p-4" aria-live="polite">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-primary" /> Gemini explanation</h3>
+                        <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">AI interprets the saved score breakdown and does not change the ranking.</p>
+                      </div>
+                      {aiStatus !== "ready" && <Button type="button" variant="outline" size="sm" onClick={explainResult} disabled={aiStatus === "loading"}>
+                        {aiStatus === "loading" ? <><Loader2 className="h-4 w-4 animate-spin" /> Analyzing…</> : <><Sparkles className="h-4 w-4" /> {aiStatus === "error" ? "Try again" : "Explain this result"}</>}
+                      </Button>}
+                    </div>
+                    {aiStatus === "loading" && <div className="mt-4 flex max-w-md items-center gap-3 rounded-lg border bg-card px-4 py-3 shadow-sm" role="status" aria-live="polite">
+                      <Sparkles className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                      <div className="min-w-0 flex-1"><p className="text-sm font-medium">Generating your explanation</p><p className="mt-0.5 text-xs text-muted-foreground">{AI_PROGRESS_MESSAGES[aiProgressIndex]}</p></div>
+                      <div className="flex items-center gap-1.5" aria-hidden="true">{AI_PROGRESS_MESSAGES.map((message, index) => <span key={message} className={`h-2 w-2 rounded-full transition-all duration-300 ${index === aiProgressIndex ? "scale-125 bg-primary" : "bg-primary/25"}`} />)}</div>
+                    </div>}
+                    {aiStatus === "error" && <p className="mt-3 text-sm text-destructive" role="alert">{aiError}</p>}
+                    {aiExplanation && <div className="mt-4 space-y-4 border-t pt-4 text-sm leading-6">
+                      <p>{aiExplanation.explanation.summary}</p>
+                      <div><h4 className="font-medium">Why {result.ranking[0]?.alternativeName} ranks first</h4><p className="mt-1 text-muted-foreground">{aiExplanation.explanation.winnerReason}</p></div>
+                      {aiExplanation.explanation.strengths.length > 0 && <div><h4 className="font-medium">Strengths in the scores</h4><ul className="mt-1 list-disc space-y-1 pl-5 text-muted-foreground">{aiExplanation.explanation.strengths.map((item, index) => <li key={`strength-${index}`}>{item}</li>)}</ul></div>}
+                      {aiExplanation.explanation.tradeoffs.length > 0 && <div><h4 className="font-medium">Trade-offs</h4><ul className="mt-1 list-disc space-y-1 pl-5 text-muted-foreground">{aiExplanation.explanation.tradeoffs.map((item, index) => <li key={`tradeoff-${index}`}>{item}</li>)}</ul></div>}
+                      {aiExplanation.explanation.assumptions.length > 0 && <div><h4 className="font-medium">Keep in mind</h4><ul className="mt-1 list-disc space-y-1 pl-5 text-muted-foreground">{aiExplanation.explanation.assumptions.map((item, index) => <li key={`assumption-${index}`}>{item}</li>)}</ul></div>}
+                      <p className="text-xs text-muted-foreground">Generated by {aiExplanation.model}. This is an interpretation of your inputs, not a guarantee or a replacement for your judgment.</p>
+                    </div>}
+                  </section>
                   {draft.criteria.length > 1 && <WhatIfAnalysis
                     key={result.decisionId}
                     input={{
