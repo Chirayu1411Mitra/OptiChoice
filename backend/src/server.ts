@@ -6,13 +6,18 @@ import { initDatabase, pool } from "./database/database.js";
 async function startServer(): Promise<void> {
   try {
     if (env.databaseUrl) {
-      await initDatabase();
-      console.log("PostgreSQL database initialized successfully.");
+      try {
+        await initDatabase();
+        console.log("PostgreSQL database initialized successfully.");
+      } catch (error) {
+        console.warn("WARNING: DATABASE_URL is set but unreachable. Continuing without a database for local startup.");
+        console.warn(error instanceof Error ? error.message : String(error));
+      }
     } else {
-      console.warn("WARNING: DATABASE_URL is not set. Please set DATABASE_URL in backend/.env to connect to Neon PostgreSQL.");
+      console.warn("WARNING: DATABASE_URL is not set. Please set a valid database URL in backend/.env to enable auth and saved decisions.");
     }
   } catch (error) {
-    console.error("Failed to initialize database connection:", error instanceof Error ? error.message : error);
+    console.error("Unexpected server startup error:", error instanceof Error ? error.message : error);
     process.exit(1);
   }
 

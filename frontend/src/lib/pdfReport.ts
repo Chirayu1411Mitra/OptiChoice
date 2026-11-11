@@ -64,27 +64,30 @@ export function generateDecisionPdf(data: DecisionReportData): void {
   }
 
   // --- BRAND HEADER ---
+  const headerHeight = 36;
   doc.setFillColor(28, 59, 48); // Deep forest green
-  doc.roundedRect(margin, y, contentWidth, 34, 3, 3, "F");
+  doc.roundedRect(margin, y, contentWidth, headerHeight, 3, 3, "F");
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   doc.setTextColor(170, 215, 195);
   doc.text("OPTICHOICE DECISION REPORT", margin + 7, y + 9);
 
-  doc.setFontSize(16);
+  const titleLines = doc.splitTextToSize(data.title || "Untitled Decision", contentWidth - 18);
+  const titleFontSize = titleLines.length > 1 ? 13.5 : 16;
+  doc.setFontSize(titleFontSize);
   doc.setTextColor(255, 255, 255);
-  const truncatedTitle = doc.splitTextToSize(data.title || "Untitled Decision", contentWidth - 14);
-  doc.text(truncatedTitle[0] ?? data.title, margin + 7, y + 18);
+  const titleStartY = titleLines.length > 1 ? y + 18 : y + 19;
+  doc.text(titleLines.slice(0, 2), margin + 7, titleStartY, { maxWidth: contentWidth - 18 });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(210, 230, 220);
   const dateStr = data.createdAt ? new Date(data.createdAt).toLocaleDateString(undefined, { dateStyle: "long" }) : new Date().toLocaleDateString();
   const modeStr = data.scoringMode === "relative" ? "Relative Normalization (Min–Max)" : "Rating Mode (0–100)";
-  doc.text(`Generated: ${dateStr}   |   Scoring: ${modeStr}`, margin + 7, y + 26);
+  doc.text(`Generated: ${dateStr}   |   Scoring: ${modeStr}`, margin + 7, y + 28);
 
-  y += 40;
+  y += headerHeight + 4;
 
   // --- DESCRIPTION (if provided) ---
   if (data.description?.trim()) {
@@ -100,28 +103,34 @@ export function generateDecisionPdf(data: DecisionReportData): void {
   // --- EXECUTIVE SUMMARY / WINNER BANNER ---
   const winner = data.ranking[0];
   if (winner) {
-    checkPageBreak(30);
+    checkPageBreak(26);
     doc.setFillColor(242, 248, 244);
     doc.setDrawColor(180, 215, 195);
-    doc.roundedRect(margin, y, contentWidth, 24, 2, 2, "FD");
+    doc.roundedRect(margin, y, contentWidth, 22, 2, 2, "FD");
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
+    doc.setFontSize(7.8);
     doc.setTextColor(40, 110, 75);
     doc.text("RECOMMENDED BEST FIT (RANK #1)", margin + 6, y + 7);
 
-    doc.setFontSize(13);
+    doc.setFontSize(12.5);
     doc.setTextColor(25, 45, 38);
-    doc.text(winner.alternativeName, margin + 6, y + 16);
+    const winnerName = doc.splitTextToSize(winner.alternativeName, contentWidth - 60);
+    doc.text(winnerName[0] ?? winner.alternativeName, margin + 6, y + 15);
 
-    doc.setFontSize(11);
+    doc.setFontSize(10.5);
     doc.setTextColor(40, 110, 75);
-    doc.text(`${winner.score.toFixed(1)} / 100`, pageWidth - margin - 8, y + 16, { align: "right" });
+    doc.text(`${winner.score.toFixed(1)} / 100`, pageWidth - margin - 8, y + 15, { align: "right" });
 
-    y += 30;
+    y += 26;
   }
 
   // --- RANKINGS TABLE ---
+  const rankX = margin + 4;
+  const optionX = margin + 20;
+  const scoreX = pageWidth - margin - 34;
+  const resultX = pageWidth - margin - 6;
+
   checkPageBreak(25 + data.ranking.length * 8);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
@@ -134,10 +143,10 @@ export function generateDecisionPdf(data: DecisionReportData): void {
   doc.rect(margin, y, contentWidth, 7, "F");
   doc.setFontSize(8);
   doc.setTextColor(90, 105, 100);
-  doc.text("RANK", margin + 4, y + 4.8);
-  doc.text("OPTION / ALTERNATIVE", margin + 20, y + 4.8);
-  doc.text("SCORE", pageWidth - margin - 26, y + 4.8);
-  doc.text("RESULT", pageWidth - margin - 6, y + 4.8, { align: "right" });
+  doc.text("RANK", rankX, y + 4.8);
+  doc.text("OPTION / ALTERNATIVE", optionX, y + 4.8);
+  doc.text("SCORE", scoreX, y + 4.8);
+  doc.text("RESULT", resultX, y + 4.8, { align: "right" });
   y += 7;
 
   // Table rows
@@ -155,16 +164,16 @@ export function generateDecisionPdf(data: DecisionReportData): void {
     doc.setTextColor(30, 40, 35);
 
     // Rank badge
-    doc.text(String(r.rank), margin + 5, y + 5);
+    doc.text(String(r.rank), rankX + 1, y + 5);
     // Name
-    const optName = doc.splitTextToSize(r.alternativeName, contentWidth - 65);
-    doc.text(optName[0] ?? r.alternativeName, margin + 20, y + 5);
+    const optName = doc.splitTextToSize(r.alternativeName, contentWidth - 76);
+    doc.text(optName[0] ?? r.alternativeName, optionX, y + 5);
     // Score
-    doc.text(`${r.score.toFixed(1)} / 100`, pageWidth - margin - 26, y + 5);
+    doc.text(`${r.score.toFixed(1)} / 100`, scoreX, y + 5);
     // Diff
     const diff = idx === 0 ? "Winner" : `-${(winner.score - r.score).toFixed(1)}`;
     doc.setTextColor(r.rank === 1 ? 40 : 120, r.rank === 1 ? 120 : 120, r.rank === 1 ? 75 : 120);
-    doc.text(diff, pageWidth - margin - 6, y + 5, { align: "right" });
+    doc.text(diff, resultX, y + 5, { align: "right" });
 
     y += 7.5;
   });

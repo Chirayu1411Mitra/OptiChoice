@@ -8,6 +8,7 @@
     "start": "node dist/backend/src/server.js"
   },
   "dependencies": {
+    "@optichoice/decision-engine": "file:../decision-engine",
     "cors": "^2.8.6",
     "dotenv": "^18.0.9",
     "express": "^5.1.0",
