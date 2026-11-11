@@ -16,7 +16,7 @@ import { draftSchema } from "../validation/draft.schema.js";
 import { evaluationRequestSchema } from "../validation/evaluation.schema.js";
 import { z } from "zod";
 import { generateDecisionExplanation } from "../services/decision-explanation.service.js";
-import { GeminiAnalysisError } from "../../../ai/src/services/gemini.service.js";
+import { GeminiAnalysisError } from "@optichoice/ai";
 
 function currentUserId(request: Request, response: Response): string | null {
   if (!request.authUser) {
