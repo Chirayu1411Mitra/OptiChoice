@@ -50,12 +50,12 @@ export const authService = {
     });
     return persistSession(session);
   },
-  async register(payload: RegisterPayload): Promise<boolean> {
-    const { emailSent } = await request<{ verificationRequired: boolean; emailSent: boolean }>("/auth/register", {
+  async register(payload: RegisterPayload): Promise<User> {
+    const session = await request<AuthResponse>("/auth/register", {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    return emailSent;
+    return persistSession(session);
   },
   async resendVerification(email: string): Promise<boolean> {
     const { emailSent } = await request<{ message: string; emailSent: boolean }>("/auth/resend-verification", {
