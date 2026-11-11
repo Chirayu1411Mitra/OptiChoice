@@ -1,4 +1,4 @@
-import { evaluateDecision } from "../../../decision-engine/src/index.js";
+import { evaluateDecision } from "@optichoice/decision-engine";
 import type { EvaluationRequestBody } from "../validation/evaluation.schema.js";
 
 export function runEvaluation(input: EvaluationRequestBody) {

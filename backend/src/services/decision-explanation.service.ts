@@ -1,4 +1,4 @@
-import { explainDecisionWithModel } from "../../../ai/src/services/gemini.service.js";
+import { explainDecisionWithModel } from "@optichoice/ai";
 import type { SavedDecision } from "../repositories/decision.repository.js";
 import { env } from "../config/env.js";
 

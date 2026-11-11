@@ -58,7 +58,7 @@ export async function registerController(request: Request, response: Response, n
       name: parsed.data.name,
       email: parsed.data.email,
       passwordHash: await hashPassword(parsed.data.password),
-      emailVerifiedAt: null,
+      emailVerifiedAt: createdAt,
       dateOfBirth: null,
       gender: null,
       phoneNumber: null,
@@ -75,11 +75,13 @@ export async function registerController(request: Request, response: Response, n
   }
 
   try {
-    const emailSent = await issueVerification(user);
-    response.status(201).json({ verificationRequired: true, emailSent });
+    const session = await issueSession(user.id);
+    response.status(201).json({
+      user: { id: user.id, name: user.name, email: user.email, createdAt: user.createdAt, dateOfBirth: user.dateOfBirth, gender: user.gender, phoneNumber: user.phoneNumber, location: user.location },
+      ...session,
+    });
   } catch (error) {
-    console.error("Verification email delivery failed.", error instanceof Error ? error.message : "Unknown email delivery error.");
-    response.status(503).json({ error: { code: "EMAIL_DELIVERY_FAILED", message: "Your account was created, but we couldn't send the verification email. Check the Gmail SMTP settings, then request another verification link." } });
+    next(error);
   }
 }
 
@@ -94,10 +96,6 @@ export async function loginController(request: Request, response: Response, next
     const user = await findUserByEmail(parsed.data.email);
     if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
       response.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Email or password is incorrect." } });
-      return;
-    }
-    if (!user.emailVerifiedAt) {
-      response.status(403).json({ error: { code: "EMAIL_NOT_VERIFIED", message: "Verify your email before logging in. Check your inbox or request a new verification link." } });
       return;
     }
     const session = await issueSession(user.id);

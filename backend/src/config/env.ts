@@ -1,5 +1,13 @@
 const port = Number(process.env.PORT ?? 3001);
-const frontendOrigins = (process.env.FRONTEND_ORIGIN ?? "http://localhost:8081")
+const defaultFrontendOrigins = [
+  "http://localhost:8081",
+  "http://127.0.0.1:8081",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
+const frontendOrigins = (process.env.FRONTEND_ORIGIN ?? defaultFrontendOrigins.join(","))
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);

@@ -6,7 +6,7 @@ interface AuthContextValue {
   user: User | null;
   ready: boolean;
   login: (p: LoginPayload) => Promise<void>;
-  register: (p: RegisterPayload) => Promise<boolean>;
+  register: (p: RegisterPayload) => Promise<User>;
   loginWithGoogle: (credential: string) => Promise<void>;
   updateProfile: (profile: ProfileUpdate) => Promise<void>;
   changePassword: (p: { currentPassword: string; newPassword: string }) => Promise<void>;
@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (p: LoginPayload) => setUser(await authService.login(p)), []);
-  const register = useCallback(async (p: RegisterPayload) => authService.register(p), []);
+  const register = useCallback(async (p: RegisterPayload) => { const u = await authService.register(p); setUser(u); return u; }, []);
   const loginWithGoogle = useCallback(async (credential: string) => setUser(await authService.loginWithGoogle(credential)), []);
   const updateProfile = useCallback(async (profile: ProfileUpdate) => setUser(await authService.updateProfile(profile)), []);
   const changePassword = useCallback(

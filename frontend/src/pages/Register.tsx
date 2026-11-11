@@ -5,8 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ErrorState } from "@/components/ui/states";
 import { useAuth } from "@/hooks/useAuth";
-import { authService } from "@/services/authService";
-import { ApiError } from "@/services/api";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 import { AuthShell, Field } from "./AuthShell";
 
@@ -29,9 +27,6 @@ export default function Register() {
   const [touched, setTouched] = useState<Partial<Record<keyof Form, boolean>>>({});
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
-  const [emailDelivered, setEmailDelivered] = useState(false);
-  const [resendMessage, setResendMessage] = useState<string | null>(null);
   const errors = validate(form);
   const hasErrors = Object.keys(errors).length > 0;
 
@@ -56,33 +51,12 @@ export default function Register() {
     setLoading(true);
     setSubmitError(null);
     try {
-      const sent = await register({ name: form.name.trim(), email: form.email, password: form.password });
-      setRegisteredEmail(form.email.trim().toLowerCase());
-      setEmailDelivered(sent);
+      await register({ name: form.name.trim(), email: form.email, password: form.password });
+      await navigate({ to: "/dashboard" });
     } catch (error) {
-      if (error instanceof ApiError && error.code === "EMAIL_DELIVERY_FAILED") {
-        setRegisteredEmail(form.email.trim().toLowerCase());
-        setEmailDelivered(false);
-        setResendMessage(error.message);
-        return;
-      }
       setSubmitError(error instanceof Error ? error.message : "We couldn't create your account. Please try again.");
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function resendVerification() {
-    if (!registeredEmail) return;
-    setResendMessage(null);
-    try {
-      const sent = await authService.resendVerification(registeredEmail);
-      setEmailDelivered(sent);
-      setResendMessage(sent
-        ? `A fresh verification email was sent to ${registeredEmail}. Check your inbox and spam folder.`
-        : "Email delivery isn't configured yet. For local development, check the backend terminal for the verification link.");
-    } catch (error) {
-      setResendMessage(error instanceof Error ? error.message : "We couldn't send another link. Please try again.");
     }
   }
 
@@ -92,16 +66,7 @@ export default function Register() {
       subtitle="Structure your choices. Decide with clarity."
       footer={<>Already have an account? <Link to="/login" className="font-medium text-primary hover:underline">Log in</Link></>}
     >
-      {registeredEmail ? (
-        <div className="space-y-4 text-sm leading-6" role="status">
-          <p className="font-medium">{emailDelivered ? "Check your email to verify your account." : "Your account is created, but email delivery needs setup."}</p>
-          <p className="text-muted-foreground">{emailDelivered
-            ? <>A verification link was sent to {registeredEmail}. It expires in 24 hours. Check your inbox and spam folder.</>
-            : <>Email delivery is unavailable. For local development, use the verification link printed in the backend terminal. The link expires in 24 hours.</>}</p>
-          {resendMessage && <p className="text-muted-foreground">{resendMessage}</p>}
-          <Button type="button" variant="outline" className="w-full" onClick={resendVerification}>Resend verification link</Button>
-        </div>
-      ) : <form onSubmit={onSubmit} className="space-y-4" noValidate>
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
         {submitError && <ErrorState message={submitError} />}
         <Field id="name" label="Name" error={touched.name ? errors.name : undefined}>
           <Input autoComplete="name" placeholder="Ada Lovelace" {...bind("name")} />
@@ -118,11 +83,11 @@ export default function Register() {
         <Button type="submit" className="w-full" disabled={loading}>
           {loading && <Loader2 className="h-4 w-4 animate-spin" />} Create account
         </Button>
-      </form>}
-      {!registeredEmail && <>
+      </form>
+      <>
         <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border" />or sign up with<span className="h-px flex-1 bg-border" /></div>
         <GoogleSignInButton onCredential={onGoogleCredential} onError={setSubmitError} />
-      </>}
+      </>
     </AuthShell>
   );
 }
